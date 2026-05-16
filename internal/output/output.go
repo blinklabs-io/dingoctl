@@ -92,7 +92,10 @@ func (p *Printer) Print(v any) error {
 	case FormatYAML:
 		enc := yaml.NewEncoder(p.w)
 		enc.SetIndent(2)
-		return enc.Encode(v)
+		if err := enc.Encode(v); err != nil {
+			return err
+		}
+		return enc.Close()
 	default: // text
 		_, err := fmt.Fprintln(p.w, v)
 		return err

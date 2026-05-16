@@ -29,16 +29,17 @@ func newVersionCmd() *cobra.Command {
 		Short: "Print the dingoctl version",
 		Long:  `Print the full version, commit hash, and build date for dingoctl.`,
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, _ []string) {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if short {
-				fmt.Fprintln(cmd.OutOrStdout(), version.Version)
-				return
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), version.Version)
+				return err
 			}
-			fmt.Fprintf(
+			_, err := fmt.Fprintf(
 				cmd.OutOrStdout(),
 				"dingoctl %s\n",
 				version.GetVersionString(),
 			)
+			return err
 		},
 	}
 

@@ -80,26 +80,24 @@ func ExitCode(err error) int {
 	if err == nil {
 		return 0
 	}
-	st, ok := status.FromError(err)
-	if !ok {
-		return 1
+	// Walk the error chain so wrapped gRPC errors are handled correctly.
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		st, ok := status.FromError(e)
+		if !ok || st.Code() == codes.OK {
+			continue
+		}
+		switch st.Code() {
+		case codes.Unauthenticated, codes.PermissionDenied:
+			return 77 // EX_NOPERM
+		case codes.NotFound, codes.Unavailable, codes.DeadlineExceeded, codes.Unimplemented:
+			return 69 // EX_UNAVAILABLE
+		case codes.InvalidArgument, codes.OutOfRange:
+			return 65 // EX_DATAERR
+		default:
+			return 1
+		}
 	}
-	switch st.Code() {
-	case codes.OK:
-		return 0
-	case codes.Unauthenticated, codes.PermissionDenied:
-		return 77 // EX_NOPERM
-	case codes.NotFound:
-		return 69 // EX_UNAVAILABLE (resource)
-	case codes.Unavailable, codes.DeadlineExceeded:
-		return 69
-	case codes.InvalidArgument, codes.OutOfRange:
-		return 65 // EX_DATAERR
-	case codes.Unimplemented:
-		return 69
-	default:
-		return 1
-	}
+	return 1
 }
 
 // Die writes a formatted error to stderr and calls os.Exit with the

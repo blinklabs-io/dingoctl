@@ -22,30 +22,9 @@ import (
 
 func newCompletionCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "completion [bash|zsh|fish|powershell]",
-		Short: "Generate shell completion scripts",
-		Long: `Generate shell completion scripts for dingoctl.
-
-To load completions in your current shell session:
-
-  Bash:
-    source <(dingoctl completion bash)
-
-  Zsh:
-    # If shell completion is not already enabled in your environment,
-    # enable it first by running:
-    #   echo "autoload -U compinit; compinit" >> ~/.zshrc
-    source <(dingoctl completion zsh)
-
-  Fish:
-    dingoctl completion fish | source
-
-  PowerShell:
-    dingoctl completion powershell | Out-String | Invoke-Expression
-
-To make completions persist across sessions, add the source command
-to your shell profile (e.g. ~/.bashrc, ~/.zshrc) or follow your
-distribution's instructions for installing completion scripts.`,
+		Use:                   "completion [bash|zsh|fish|powershell]",
+		Short:                 "Generate shell completion scripts",
+		Long:                  `Generate a shell completion script for dingoctl and print it to stdout.`,
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),

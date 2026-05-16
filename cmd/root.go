@@ -16,6 +16,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -147,8 +148,13 @@ func initConfig() {
 		viper.SetConfigName(".dingoctl")
 		viper.SetConfigType("yaml")
 	}
-	// Ignore "file not found" errors — config is optional.
-	_ = viper.ReadInConfig()
+	// Only suppress "file not found" — a malformed config should be surfaced.
+	if err := viper.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			fmt.Fprintf(os.Stderr, "warning: config file error: %s\n", err)
+		}
+	}
 }
 
 // persistentPreRun validates flags that apply to every sub-command.
@@ -158,13 +164,17 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 		globalFlags.TLS = true
 	}
 
-	// validate --output
-	if !output.Format(globalFlags.Output).IsValid() {
+	// Read output-related settings from Viper so that env vars and config file
+	// overrides (e.g. DINGOCTL_OUTPUT=json) are honoured, not just CLI flags.
+	outputFormat := viper.GetString("output")
+	if !output.Format(outputFormat).IsValid() {
 		return fmt.Errorf(
 			"invalid --output %q: must be one of text, json, yaml",
-			globalFlags.Output,
+			outputFormat,
 		)
 	}
+	globalFlags.Output = outputFormat
+	globalFlags.Quiet = viper.GetBool("quiet")
 	return nil
 }
 
