@@ -159,13 +159,23 @@ func initConfig() {
 
 // persistentPreRun validates flags that apply to every sub-command.
 func persistentPreRun(cmd *cobra.Command, _ []string) error {
-	// --insecure implies --tls
+	// Hydrate all global options from the canonical Viper values so that
+	// env-var overrides (DINGOCTL_*) and config-file values are reflected in
+	// globalFlags, not just explicit CLI flags.
+	globalFlags.Connect = viper.GetString("connect")
+	globalFlags.TLS = viper.GetBool("tls")
+	globalFlags.Insecure = viper.GetBool("insecure")
+	globalFlags.Timeout = viper.GetDuration("timeout")
+	globalFlags.Verbose = viper.GetBool("verbose")
+	globalFlags.Quiet = viper.GetBool("quiet")
+
+	// --insecure implies --tls.  Apply to both globalFlags and Viper so that
+	// any code reading from either source sees the canonical value.
 	if globalFlags.Insecure {
 		globalFlags.TLS = true
+		viper.Set("tls", true)
 	}
 
-	// Read output-related settings from Viper so that env vars and config file
-	// overrides (e.g. DINGOCTL_OUTPUT=json) are honoured, not just CLI flags.
 	outputFormat := viper.GetString("output")
 	if !output.Format(outputFormat).IsValid() {
 		return fmt.Errorf(
@@ -174,7 +184,6 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 		)
 	}
 	globalFlags.Output = outputFormat
-	globalFlags.Quiet = viper.GetBool("quiet")
 	return nil
 }
 
