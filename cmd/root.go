@@ -135,7 +135,8 @@ func init() {
 	rootCmd.AddCommand(newCompletionCmd())
 }
 
-// initConfig reads the config file (if any) via Viper.
+// initConfig sets up the config file search paths via Viper.
+// The actual read happens in persistentPreRun so errors can be returned.
 func initConfig() {
 	if globalFlags.ConfigFile != "" {
 		viper.SetConfigFile(globalFlags.ConfigFile)
@@ -148,17 +149,19 @@ func initConfig() {
 		viper.SetConfigName(".dingoctl")
 		viper.SetConfigType("yaml")
 	}
-	// Only suppress "file not found" — a malformed config should be surfaced.
-	if err := viper.ReadInConfig(); err != nil {
-		var notFound viper.ConfigFileNotFoundError
-		if !errors.As(err, &notFound) {
-			fmt.Fprintf(os.Stderr, "warning: config file error: %s\n", err)
-		}
-	}
 }
 
 // persistentPreRun validates flags that apply to every sub-command.
 func persistentPreRun(cmd *cobra.Command, _ []string) error {
+	// Read the config file now so parse errors surface as command errors
+	// (non-zero exit) rather than being silently ignored.
+	if err := viper.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return fmt.Errorf("config file error: %w", err)
+		}
+	}
+
 	// Hydrate all global options from the canonical Viper values so that
 	// env-var overrides (DINGOCTL_*) and config-file values are reflected in
 	// globalFlags, not just explicit CLI flags.
