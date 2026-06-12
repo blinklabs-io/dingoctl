@@ -35,7 +35,7 @@ import (
 //   - TLS=true, Insecure=true → same as above but cert verification is
 //     skipped; intended only for local development.
 func buildTransport(cfg Config) (http.RoundTripper, error) {
-	if !cfg.TLS {
+	if !cfg.TLS && !cfg.Insecure {
 		// Plain-text HTTP/2 (h2c).  DialTLSContext is used by the http2
 		// package even for cleartext connections when AllowHTTP is set; we
 		// return a plain TCP dial so no TLS handshake takes place.
@@ -83,7 +83,7 @@ func buildTransport(cfg Config) (http.RoundTripper, error) {
 // serverBaseURL constructs the scheme+authority URL for cfg.
 func serverBaseURL(cfg Config) string {
 	scheme := "http"
-	if cfg.TLS {
+	if cfg.TLS || cfg.Insecure {
 		scheme = "https"
 	}
 	return scheme + "://" + cfg.Address

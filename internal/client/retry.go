@@ -21,42 +21,75 @@ import (
 	"connectrpc.com/connect"
 )
 
-// transientCode returns true when the error code is a transient condition
-// that is safe to retry on idempotent calls:
+// transientCode reports whether code represents a transient condition that is
+// safe to retry for any call:
 //
-//   - Unavailable: server was temporarily unreachable; the request never
-//     reached the handler so retrying is always safe.
-//   - ResourceExhausted: server-side rate limit; safe to retry after backoff.
+//   - Unavailable: transport-level failure; the server was unreachable and
+//     never received the request, so replaying it has no side effects.
+//   - ResourceExhausted: quota / rate-limit rejection; the server received and
+//     immediately rejected the request before executing any handler logic, so
+//     retrying after backoff is safe.
 func transientCode(code connect.Code) bool {
 	return code == connect.CodeUnavailable || code == connect.CodeResourceExhausted
 }
 
+// retryPolicy encapsulates the attempt counter and exponential-backoff state.
+// It is shared between retryInterceptor (unary) and RunServerStream so both
+// use exactly the same logic and are maintained in one place.
+type retryPolicy struct {
+	cfg     Config
+	attempt int
+	delay   time.Duration
+}
+
+func newRetryPolicy(cfg Config) *retryPolicy {
+	return &retryPolicy{cfg: cfg, delay: cfg.RetryBaseDelay}
+}
+
+// retriable returns true when err is transient and the attempt budget allows
+// at least one more try.
+func (rp *retryPolicy) retriable(err error) bool {
+	return err != nil &&
+		rp.cfg.MaxRetries > 0 &&
+		rp.attempt < rp.cfg.MaxRetries &&
+		transientCode(connect.CodeOf(err))
+}
+
+// advance waits the current backoff delay (honouring ctx cancellation),
+// increments the attempt counter, and doubles the delay up to RetryMaxDelay.
+// The doubling uses a pre-cap check to avoid int64 overflow on large delays.
+func (rp *retryPolicy) advance(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(rp.delay):
+	}
+	rp.attempt++
+	if rp.delay > rp.cfg.RetryMaxDelay/2 {
+		rp.delay = rp.cfg.RetryMaxDelay
+	} else {
+		rp.delay *= 2
+	}
+	return nil
+}
+
 // retryInterceptor returns a ConnectRPC unary interceptor that re-attempts
-// failed calls with exponential backoff when the error is transient.
-//
-// Only unary calls are retried (streaming calls cannot be safely replayed at
-// this layer).  The interceptor honours context cancellation between attempts
-// so the global --timeout still applies.
+// failed calls using retryPolicy.  Context cancellation (e.g. --timeout)
+// stops the loop between attempts so the total budget is respected.
 func retryInterceptor(cfg Config) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			delay := cfg.RetryBaseDelay
-			for attempt := 0; ; attempt++ {
+			rp := newRetryPolicy(cfg)
+			for {
 				resp, err := next(ctx, req)
 				if err == nil {
 					return resp, nil
 				}
-				if cfg.MaxRetries == 0 || attempt >= cfg.MaxRetries || !transientCode(connect.CodeOf(err)) {
+				if !rp.retriable(err) {
 					return nil, err
 				}
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(delay):
-				}
-				delay *= 2
-				if delay > cfg.RetryMaxDelay {
-					delay = cfg.RetryMaxDelay
+				if advErr := rp.advance(ctx); advErr != nil {
+					return nil, advErr
 				}
 			}
 		}

@@ -207,8 +207,8 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 		viper.Set("tls", true)
 	}
 
-	// mTLS certs also imply --tls.
-	if globalFlags.ClientCert != "" || globalFlags.ClientKey != "" {
+	// A custom CA cert or mTLS keypair only makes sense over TLS.
+	if globalFlags.CACert != "" || globalFlags.ClientCert != "" || globalFlags.ClientKey != "" {
 		globalFlags.TLS = true
 		viper.Set("tls", true)
 	}

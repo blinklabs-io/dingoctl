@@ -76,10 +76,14 @@ func (c *Client) HTTPClient() *http.Client { return c.httpClient }
 // (e.g. "https://bark.example.com:8080").
 func (c *Client) BaseURL() string { return c.baseURL }
 
-// ConnectOptions returns the slice of connect.ClientOption values (timeout +
-// retry interceptors) that should be passed to every generated client
-// constructor.
-func (c *Client) ConnectOptions() []connect.ClientOption { return c.connectOpts }
+// ConnectOptions returns a copy of the connect.ClientOption values (timeout +
+// retry interceptors) to pass to every generated client constructor.  A copy
+// is returned so callers cannot mutate the shared interceptor chain.
+func (c *Client) ConnectOptions() []connect.ClientOption {
+	opts := make([]connect.ClientOption, len(c.connectOpts))
+	copy(opts, c.connectOpts)
+	return opts
+}
 
 // Config returns the Config that was used to create this client.
 func (c *Client) Config() Config { return c.cfg }
@@ -95,16 +99,16 @@ func (c *Client) Config() Config { return c.cfg }
 // DatabaseService returns the connection parameters for the Bark
 // DatabaseService.
 func (c *Client) DatabaseService() (*http.Client, string, []connect.ClientOption) {
-	return c.httpClient, c.baseURL, c.connectOpts
+	return c.httpClient, c.baseURL, c.ConnectOptions()
 }
 
 // LifecycleService returns the connection parameters for the Bark
 // LifecycleService.
 func (c *Client) LifecycleService() (*http.Client, string, []connect.ClientOption) {
-	return c.httpClient, c.baseURL, c.connectOpts
+	return c.httpClient, c.baseURL, c.ConnectOptions()
 }
 
 // EventService returns the connection parameters for the Bark EventService.
 func (c *Client) EventService() (*http.Client, string, []connect.ClientOption) {
-	return c.httpClient, c.baseURL, c.connectOpts
+	return c.httpClient, c.baseURL, c.ConnectOptions()
 }

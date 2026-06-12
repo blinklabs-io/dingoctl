@@ -85,6 +85,58 @@ func TestTransientCode(t *testing.T) {
 	}
 }
 
+// ── retryPolicy ──────────────────────────────────────────────────────────────
+
+func TestRetryPolicyRetriableFalseWhenMaxRetriesZero(t *testing.T) {
+	rp := newRetryPolicy(testCfg(0))
+	if rp.retriable(unavailable()) {
+		t.Error("retriable must be false when MaxRetries=0")
+	}
+}
+
+func TestRetryPolicyRetriableFalseWhenBudgetExhausted(t *testing.T) {
+	rp := newRetryPolicy(testCfg(1))
+	rp.attempt = 1 // budget spent
+	if rp.retriable(unavailable()) {
+		t.Error("retriable must be false when attempt >= MaxRetries")
+	}
+}
+
+func TestRetryPolicyRetriableFalseForPermanentError(t *testing.T) {
+	rp := newRetryPolicy(testCfg(3))
+	if rp.retriable(notFound()) {
+		t.Error("retriable must be false for permanent errors")
+	}
+}
+
+func TestRetryPolicyAdvanceDoublesDelay(t *testing.T) {
+	cfg := Config{RetryBaseDelay: 4 * time.Millisecond, RetryMaxDelay: 20 * time.Millisecond}
+	rp := newRetryPolicy(cfg)
+	_ = rp.advance(context.Background())
+	if rp.delay != 8*time.Millisecond {
+		t.Errorf("delay after first advance: got %v, want 8ms", rp.delay)
+	}
+}
+
+func TestRetryPolicyAdvanceCapsAtMaxDelay(t *testing.T) {
+	cfg := Config{RetryBaseDelay: 8 * time.Millisecond, RetryMaxDelay: 10 * time.Millisecond}
+	rp := newRetryPolicy(cfg)
+	_ = rp.advance(context.Background()) // 8ms → would be 16ms but capped at 10ms
+	if rp.delay != 10*time.Millisecond {
+		t.Errorf("delay after advance: got %v, want 10ms (capped)", rp.delay)
+	}
+}
+
+func TestRetryPolicyAdvanceCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rp := newRetryPolicy(testCfg(3))
+	err := rp.advance(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
 // ── retryInterceptor ─────────────────────────────────────────────────────────
 
 func TestRetryNoRetryOnSuccess(t *testing.T) {
@@ -179,7 +231,7 @@ func TestRetryContextCancelledStopsLoop(t *testing.T) {
 	fn := func(_ context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
 		calls++
 		if calls == 1 {
-			// Cancel the context before the retry sleep fires.
+			// Cancel before the retry sleep fires.
 			cancel()
 		}
 		return nil, unavailable()
@@ -191,7 +243,6 @@ func TestRetryContextCancelledStopsLoop(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error after context cancellation")
 	}
-	// The error should be context.Canceled (from ctx.Err()).
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -205,7 +256,6 @@ func TestRetryContextCancelledStopsLoop(t *testing.T) {
 func TestTimeoutApplied(t *testing.T) {
 	cfg := Config{Timeout: 10 * time.Millisecond}
 	fn := func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
-		// Block until context deadline fires.
 		<-ctx.Done()
 		return nil, connect.NewError(connect.CodeDeadlineExceeded, ctx.Err())
 	}
