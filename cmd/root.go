@@ -16,12 +16,12 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/blinklabs-io/dingoctl/internal/config"
 	"github.com/blinklabs-io/dingoctl/internal/errs"
 	"github.com/blinklabs-io/dingoctl/internal/output"
 	"github.com/blinklabs-io/dingoctl/internal/version"
@@ -33,6 +33,7 @@ import (
 // Sub-commands read these via the exported accessors or through viper.
 type GlobalFlags struct {
 	ConfigFile string
+	Profile    string
 	Connect    string
 	TLS        bool
 	Insecure   bool
@@ -79,13 +80,20 @@ func init() {
 	pf.StringVar(
 		&globalFlags.ConfigFile,
 		"config", "",
-		"config file (default: $HOME/.dingoctl.yaml)",
+		"config file (default: ~/.config/dingoctl/config.yaml)",
+	)
+
+	// profile selection
+	pf.StringVar(
+		&globalFlags.Profile,
+		"profile", "",
+		"config profile to use (default: current profile)",
 	)
 
 	// connection flags
 	pf.StringVar(
 		&globalFlags.Connect,
-		"connect", "localhost:8080",
+		"connect", "",
 		"address of the Dingo node (host:port)",
 	)
 	pf.BoolVar(
@@ -115,14 +123,14 @@ func init() {
 	)
 	pf.DurationVar(
 		&globalFlags.Timeout,
-		"timeout", 30*time.Second,
+		"timeout", 0,
 		"timeout for requests to the node",
 	)
 
 	// output flags
 	pf.StringVar(
 		&globalFlags.Output,
-		"output", "text",
+		"output", "",
 		"output format: text, json, yaml",
 	)
 	pf.BoolVar(
@@ -137,6 +145,7 @@ func init() {
 	)
 
 	// bind flags to viper so env vars and config files populate them too
+	_ = viper.BindPFlag("profile", pf.Lookup("profile"))
 	_ = viper.BindPFlag("connect", pf.Lookup("connect"))
 	_ = viper.BindPFlag("tls", pf.Lookup("tls"))
 	_ = viper.BindPFlag("insecure", pf.Lookup("insecure"))
@@ -158,6 +167,7 @@ func init() {
 	// sub-commands
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newCompletionCmd())
+	rootCmd.AddCommand(newConfigCmd())
 }
 
 // initConfig sets up the config file search paths via Viper.
@@ -166,37 +176,90 @@ func initConfig() {
 	if globalFlags.ConfigFile != "" {
 		viper.SetConfigFile(globalFlags.ConfigFile)
 	} else {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			viper.AddConfigPath(home)
-		}
-		viper.AddConfigPath(".")
-		viper.SetConfigName(".dingoctl")
+		// Use XDG-compliant config path by default
+		configPath := config.GetConfigPath()
+		viper.SetConfigFile(configPath)
 		viper.SetConfigType("yaml")
 	}
 }
 
 // persistentPreRun validates flags that apply to every sub-command.
 func persistentPreRun(cmd *cobra.Command, _ []string) error {
-	// Read the config file now so parse errors surface as command errors
-	// (non-zero exit) rather than being silently ignored.
-	if err := viper.ReadInConfig(); err != nil {
-		var notFound viper.ConfigFileNotFoundError
-		if !errors.As(err, &notFound) {
-			return fmt.Errorf("config file error: %w", err)
+	// Load the configuration from the XDG-compliant path
+	var cfg *config.Config
+	var err error
+
+	if globalFlags.ConfigFile != "" {
+		cfg, err = config.LoadFrom(globalFlags.ConfigFile)
+	} else {
+		cfg, err = config.Load()
+	}
+
+	if err != nil {
+		return fmt.Errorf("config error: %w", err)
+	}
+
+	// Determine which profile to use
+	profileName := globalFlags.Profile
+	if profileName == "" {
+		// Check environment variable
+		profileName = os.Getenv("DINGOCTL_PROFILE")
+	}
+	if profileName == "" {
+		// Use current profile from config
+		profileName = cfg.CurrentProfile
+	}
+
+	// Get the profile settings
+	profile := cfg.GetProfile(profileName)
+	if profile == nil {
+		// If profile doesn't exist, use defaults
+		profile = &config.Profile{
+			Connect: "localhost:8080",
+			Timeout: 30 * time.Second,
+			Output:  "text",
 		}
 	}
 
-	// Hydrate all global options from the canonical Viper values so that
-	// env-var overrides (DINGOCTL_*) and config-file values are reflected in
-	// globalFlags, not just explicit CLI flags.
+	// Apply profile settings to viper (these become the base layer)
+	if profile.Connect != "" {
+		viper.SetDefault("connect", profile.Connect)
+	}
+	viper.SetDefault("tls", profile.TLS)
+	viper.SetDefault("insecure", profile.Insecure)
+	if profile.CACert != "" {
+		viper.SetDefault("ca-cert", profile.CACert)
+	}
+	if profile.ClientCert != "" {
+		viper.SetDefault("client-cert", profile.ClientCert)
+	}
+	if profile.ClientKey != "" {
+		viper.SetDefault("client-key", profile.ClientKey)
+	}
+	if profile.Timeout > 0 {
+		viper.SetDefault("timeout", profile.Timeout)
+	}
+	if profile.Output != "" {
+		viper.SetDefault("output", profile.Output)
+	}
+
+	// Hydrate all global options from the canonical Viper values.
+	// Priority order: CLI flags > env vars > profile settings > defaults
+	globalFlags.Profile = profileName
 	globalFlags.Connect = viper.GetString("connect")
 	globalFlags.TLS = viper.GetBool("tls")
 	globalFlags.Insecure = viper.GetBool("insecure")
 	globalFlags.CACert = viper.GetString("ca-cert")
 	globalFlags.ClientCert = viper.GetString("client-cert")
 	globalFlags.ClientKey = viper.GetString("client-key")
-	globalFlags.Timeout = viper.GetDuration("timeout")
+
+	// Handle timeout with fallback to default
+	timeout := viper.GetDuration("timeout")
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+	globalFlags.Timeout = timeout
+
 	globalFlags.Verbose = viper.GetBool("verbose")
 	globalFlags.Quiet = viper.GetBool("quiet")
 
@@ -218,7 +281,11 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--client-cert and --client-key must be provided together")
 	}
 
+	// Validate and set output format
 	outputFormat := viper.GetString("output")
+	if outputFormat == "" {
+		outputFormat = "text"
+	}
 	if !output.Format(outputFormat).IsValid() {
 		return fmt.Errorf(
 			"invalid --output %q: must be one of text, json, yaml",
