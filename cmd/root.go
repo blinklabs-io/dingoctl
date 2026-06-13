@@ -213,12 +213,7 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 	// Get the profile settings
 	profile := cfg.GetProfile(profileName)
 	if profile == nil {
-		// If profile doesn't exist, use defaults
-		profile = &config.Profile{
-			Connect: "localhost:8080",
-			Timeout: 30 * time.Second,
-			Output:  "text",
-		}
+		return fmt.Errorf("profile %q does not exist", profileName)
 	}
 
 	// Apply profile settings to viper (these become the base layer)
@@ -253,12 +248,14 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 	globalFlags.ClientCert = viper.GetString("client-cert")
 	globalFlags.ClientKey = viper.GetString("client-key")
 
-	// Handle timeout with fallback to default
-	timeout := viper.GetDuration("timeout")
-	if timeout == 0 {
-		timeout = 30 * time.Second
+	// Get timeout; explicit zero is valid (no timeout)
+	if viper.IsSet("timeout") {
+		globalFlags.Timeout = viper.GetDuration("timeout")
+	} else if profile.Timeout > 0 {
+		globalFlags.Timeout = profile.Timeout
+	} else {
+		globalFlags.Timeout = 30 * time.Second
 	}
-	globalFlags.Timeout = timeout
 
 	globalFlags.Verbose = viper.GetBool("verbose")
 	globalFlags.Quiet = viper.GetBool("quiet")

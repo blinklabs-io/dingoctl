@@ -17,6 +17,7 @@
 package config
 
 import (
+	"sort"
 	"time"
 )
 
@@ -116,5 +117,6 @@ func (c *Config) ListProfiles() []string {
 	for name := range c.Profiles {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }

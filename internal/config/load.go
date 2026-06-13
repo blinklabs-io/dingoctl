@@ -18,10 +18,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // Load reads the configuration from the XDG-compliant path.
@@ -46,8 +47,37 @@ func LoadFrom(path string) (*Config, error) {
 	if err := v.ReadInConfig(); err != nil {
 		// Check if the file doesn't exist
 		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-			// No config file found; return defaults
-			return Default(), nil
+			// No config file found; return defaults but still allow env vars
+			cfg := Default()
+			// Apply any environment variable overrides to the default profile
+			if defaultProfile, ok := cfg.Profiles["default"]; ok {
+				if connect := v.GetString("connect"); connect != "" {
+					defaultProfile.Connect = connect
+				}
+				if v.IsSet("tls") {
+					defaultProfile.TLS = v.GetBool("tls")
+				}
+				if v.IsSet("insecure") {
+					defaultProfile.Insecure = v.GetBool("insecure")
+				}
+				if caCert := v.GetString("ca_cert"); caCert != "" {
+					defaultProfile.CACert = caCert
+				}
+				if clientCert := v.GetString("client_cert"); clientCert != "" {
+					defaultProfile.ClientCert = clientCert
+				}
+				if clientKey := v.GetString("client_key"); clientKey != "" {
+					defaultProfile.ClientKey = clientKey
+				}
+				if v.IsSet("timeout") {
+					defaultProfile.Timeout = v.GetDuration("timeout")
+				}
+				if output := v.GetString("output"); output != "" {
+					defaultProfile.Output = output
+				}
+				cfg.Profiles["default"] = defaultProfile
+			}
+			return cfg, nil
 		}
 		return nil, fmt.Errorf("error reading config file %q: %w", path, err)
 	}
@@ -73,8 +103,9 @@ func (c *Config) Save() error {
 
 // SaveTo writes the configuration to the specified path.
 func (c *Config) SaveTo(path string) error {
-	// Ensure the directory exists
-	if err := EnsureConfigDir(); err != nil {
+	// Ensure the directory for the given path exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 

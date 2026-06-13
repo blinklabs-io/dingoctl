@@ -22,7 +22,7 @@ import (
 
 	"github.com/blinklabs-io/dingoctl/internal/config"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // newConfigCmd creates the config command with all its subcommands.
