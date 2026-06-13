@@ -77,6 +77,10 @@ func LoadFrom(path string) (*Config, error) {
 				}
 				cfg.Profiles["default"] = defaultProfile
 			}
+			// Validate config even when loaded from env vars only
+			if err := cfg.Validate(); err != nil {
+				return nil, err
+			}
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("error reading config file %q: %w", path, err)

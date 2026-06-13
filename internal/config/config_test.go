@@ -17,6 +17,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -299,5 +300,37 @@ func TestLoadNonExistentFile(t *testing.T) {
 
 	if len(cfg.Profiles) != 1 {
 		t.Errorf("expected 1 profile, got %d", len(cfg.Profiles))
+	}
+}
+
+func TestLoadWithEnvVarsValidation(t *testing.T) {
+	// Create a temporary directory
+	tmpDir := t.TempDir()
+	nonExistentPath := filepath.Join(tmpDir, "nonexistent.yaml")
+
+	// Set invalid output format via env var
+	t.Setenv("DINGOCTL_OUTPUT", "invalid")
+
+	// Loading should fail validation even without a config file
+	_, err := LoadFrom(nonExistentPath)
+	if err == nil {
+		t.Fatal("expected validation error for invalid output format from env var")
+	}
+
+	if !strings.Contains(err.Error(), "invalid output format") {
+		t.Errorf("expected 'invalid output format' error, got: %v", err)
+	}
+
+	// Test mismatched client cert/key
+	t.Setenv("DINGOCTL_OUTPUT", "json")
+	t.Setenv("DINGOCTL_CLIENT_CERT", "/path/to/cert.pem")
+
+	_, err = LoadFrom(nonExistentPath)
+	if err == nil {
+		t.Fatal("expected validation error for mismatched client cert/key")
+	}
+
+	if !strings.Contains(err.Error(), "client_cert and client_key must be provided together") {
+		t.Errorf("expected client cert/key error, got: %v", err)
 	}
 }
