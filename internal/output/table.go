@@ -69,7 +69,7 @@ func (r *TableRenderer) Render(t *Table) error {
 			Border(lipgloss.NormalBorder()).
 			BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("8"))).
 			StyleFunc(func(row, col int) lipgloss.Style {
-				if row == 0 {
+				if row == table.HeaderRow {
 					return headerStyle
 				}
 				if row%2 == 0 {
@@ -128,13 +128,19 @@ func (r *TableRenderer) RenderSimple(t *Table) error {
 	fmt.Fprintln(r.w, strings.Join(headerParts, "  "))
 
 	// Render separator
-	if !r.color {
-		sepParts := make([]string, len(widths))
-		for i, w := range widths {
+	sepParts := make([]string, len(widths))
+	for i, w := range widths {
+		if r.color {
+			// Use styled separator for color mode
+			sep := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("8")).
+				Render(strings.Repeat("─", w))
+			sepParts[i] = sep
+		} else {
 			sepParts[i] = strings.Repeat("-", w)
 		}
-		fmt.Fprintln(r.w, strings.Join(sepParts, "  "))
 	}
+	fmt.Fprintln(r.w, strings.Join(sepParts, "  "))
 
 	// Render rows
 	for _, row := range t.Rows {

@@ -189,7 +189,6 @@ func (s *Spinner) Update(msg string) {
 func (s *Spinner) Stop() {
 	s.mu.Lock()
 	s.done = true
-	s.mu.Unlock()
 
 	if s.cancel != nil {
 		s.cancel()
@@ -198,8 +197,9 @@ func (s *Spinner) Stop() {
 		s.ticker.Stop()
 	}
 
-	// Clear the spinner line
+	// Clear the spinner line (hold lock to prevent race with render loop)
 	fmt.Fprintf(s.w, "\r%s\r", strings.Repeat(" ", 80))
+	s.mu.Unlock()
 }
 
 // run is the spinner animation loop.

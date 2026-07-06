@@ -115,7 +115,7 @@ dingoctl [flags] <command> [args]
 - `--client-cert <path>`: Path to client certificate for mTLS
 - `--client-key <path>`: Path to client key for mTLS
 - `--timeout <duration>`: Request timeout (e.g., 30s, 1m)
-- `--output <format>`: Output format (text, json, yaml)
+- `--output <format>`: Output format (text, json, yaml, table)
 - `--quiet`: Suppress non-error output
 - `--verbose`: Enable verbose output
 

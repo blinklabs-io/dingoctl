@@ -121,19 +121,24 @@ func (p *Printer) ColorEnabled() bool {
 	return p.color
 }
 
+// Format returns the current output format.
+func (p *Printer) Format() Format {
+	return p.format
+}
+
 // Text returns the text renderer for styled output.
-// Only applies to text format; returns nil for JSON/YAML.
+// Returns nil for JSON/YAML formats or when quiet mode is enabled.
 func (p *Printer) Text() *TextRenderer {
-	if p.format != FormatText {
+	if p.quiet || (p.format != FormatText && p.format != FormatTable) {
 		return nil
 	}
 	return p.text
 }
 
 // Table returns the table renderer for tabular output.
-// Only applies to text format; returns nil for JSON/YAML.
+// Returns nil for JSON/YAML formats or when quiet mode is enabled.
 func (p *Printer) Table() *TableRenderer {
-	if p.format != FormatText {
+	if p.quiet || (p.format != FormatText && p.format != FormatTable) {
 		return nil
 	}
 	return p.table

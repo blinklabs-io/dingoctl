@@ -15,6 +15,7 @@
 package output_test
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -172,5 +173,5 @@ func Example_structuredOutput() {
 	} else {
 		textPrinter.Warning("Node is syncing")
 	}
-	textPrinter.KeyValue("Current Block", string(rune(info.BlockNum)))
+	textPrinter.KeyValue("Current Block", fmt.Sprintf("%d", info.BlockNum))
 }
