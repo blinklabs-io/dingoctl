@@ -97,8 +97,6 @@ Settings are applied in this order (highest to lowest priority):
 3. Profile settings (from config file)
 4. Defaults
 
-See [CONFIG.md](CONFIG.md) for detailed documentation on the configuration system.
-
 ## Usage
 
 ```bash

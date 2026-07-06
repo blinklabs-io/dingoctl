@@ -145,18 +145,18 @@ func (p *Printer) Table() *TableRenderer {
 }
 
 // NewProgressBar creates a progress bar for this printer.
-// Returns nil if quiet mode is enabled.
+// Returns nil if quiet mode is enabled or format is JSON/YAML.
 func (p *Printer) NewProgressBar(width int) *ProgressBar {
-	if p.quiet {
+	if p.quiet || (p.format != FormatText && p.format != FormatTable) {
 		return nil
 	}
 	return NewProgressBar(p.w, p.color, width)
 }
 
 // NewSpinner creates a spinner for this printer.
-// Returns nil if quiet mode is enabled.
+// Returns nil if quiet mode is enabled or format is JSON/YAML.
 func (p *Printer) NewSpinner() *Spinner {
-	if p.quiet {
+	if p.quiet || (p.format != FormatText && p.format != FormatTable) {
 		return nil
 	}
 	return NewSpinner(p.w, p.color)

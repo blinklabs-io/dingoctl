@@ -107,8 +107,16 @@ func (pb *ProgressBar) Complete(msg string) error {
 // render writes the current progress state to the writer.
 // Must be called with pb.mu held.
 func (pb *ProgressBar) render(p float64) error {
-	// Clear the current line
-	fmt.Fprintf(pb.w, "\r%s\r", strings.Repeat(" ", pb.width+50))
+	// Clamp progress to valid range
+	if p < 0 {
+		p = 0
+	}
+	if p > 1 {
+		p = 1
+	}
+
+	// Clear the current line (generous width to handle long messages)
+	fmt.Fprintf(pb.w, "\r%s\r", strings.Repeat(" ", 120))
 
 	if pb.color {
 		// Styled progress bar
@@ -170,8 +178,18 @@ func NewSpinner(w io.Writer, color bool) *Spinner {
 // Start begins the spinner animation in a background goroutine.
 func (s *Spinner) Start(msg string) {
 	s.mu.Lock()
+	// Stop any previous spinner to prevent leaks
+	if s.ticker != nil {
+		s.ticker.Stop()
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+	// Recreate context for restart capability
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.message = msg
 	s.done = false
+	s.current = 0
 	s.mu.Unlock()
 
 	s.ticker = time.NewTicker(100 * time.Millisecond)
@@ -198,7 +216,8 @@ func (s *Spinner) Stop() {
 	}
 
 	// Clear the spinner line (hold lock to prevent race with render loop)
-	fmt.Fprintf(s.w, "\r%s\r", strings.Repeat(" ", 80))
+	// Use generous width to handle long messages
+	fmt.Fprintf(s.w, "\r%s\r", strings.Repeat(" ", 120))
 	s.mu.Unlock()
 }
 
@@ -219,7 +238,7 @@ func (s *Spinner) run() {
 			s.current = (s.current + 1) % len(s.frames)
 
 			// Clear and render
-			fmt.Fprintf(s.w, "\r%s\r", strings.Repeat(" ", 80))
+			fmt.Fprintf(s.w, "\r%s\r", strings.Repeat(" ", 120))
 
 			if s.color {
 				styled := lipgloss.NewStyle().

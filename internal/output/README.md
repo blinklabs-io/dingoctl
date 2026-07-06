@@ -10,7 +10,6 @@ The `output` package provides consistent formatting for dingoctl commands with s
 - **Progress Indicators**: Progress bars and spinners for long operations
 - **Quiet Mode**: Suppress all non-essential output
 - **Color Awareness**: Respects NO_COLOR env var and TTY detection
-- **Terminal Safety**: Handles resize and disconnect gracefully
 
 ## Usage
 
@@ -153,8 +152,13 @@ Colors are always disabled for JSON and YAML formats.
 Commands should use the global printer from `cmd.GetOutputPrinter()`:
 
 ```go
+import (
+    "github.com/spf13/cobra"
+    cmdpkg "github.com/blinklabs-io/dingoctl/cmd"
+)
+
 func runMyCommand(cmd *cobra.Command, args []string) error {
-    printer := cmd.GetOutputPrinter()
+    printer := cmdpkg.GetOutputPrinter()
     
     // For structured data output
     if err := printer.Print(result); err != nil {

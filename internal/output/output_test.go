@@ -50,9 +50,17 @@ func TestFormatIsValid(t *testing.T) {
 func TestColorEnabled(t *testing.T) {
 	// Test NO_COLOR environment variable
 	t.Run("NO_COLOR disables color", func(t *testing.T) {
-		os.Setenv("NO_COLOR", "1")
-		defer os.Unsetenv("NO_COLOR")
+		// Save original value and restore after test
+		original, hadOriginal := os.LookupEnv("NO_COLOR")
+		defer func() {
+			if hadOriginal {
+				os.Setenv("NO_COLOR", original)
+			} else {
+				os.Unsetenv("NO_COLOR")
+			}
+		}()
 
+		os.Setenv("NO_COLOR", "1")
 		if ColorEnabled(os.Stdout) {
 			t.Error("ColorEnabled() should return false when NO_COLOR is set")
 		}
@@ -60,7 +68,6 @@ func TestColorEnabled(t *testing.T) {
 
 	// Test with a non-file writer
 	t.Run("non-file writer disables color", func(t *testing.T) {
-		os.Unsetenv("NO_COLOR")
 		buf := &bytes.Buffer{}
 		if ColorEnabled(buf) {
 			t.Error("ColorEnabled() should return false for non-file writers")

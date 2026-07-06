@@ -125,7 +125,9 @@ func (r *TableRenderer) RenderSimple(t *Table) error {
 			headerParts[i] = h + strings.Repeat(" ", widths[i]-len(h))
 		}
 	}
-	fmt.Fprintln(r.w, strings.Join(headerParts, "  "))
+	if _, err := fmt.Fprintln(r.w, strings.Join(headerParts, "  ")); err != nil {
+		return err
+	}
 
 	// Render separator
 	sepParts := make([]string, len(widths))
@@ -140,7 +142,9 @@ func (r *TableRenderer) RenderSimple(t *Table) error {
 			sepParts[i] = strings.Repeat("-", w)
 		}
 	}
-	fmt.Fprintln(r.w, strings.Join(sepParts, "  "))
+	if _, err := fmt.Fprintln(r.w, strings.Join(sepParts, "  ")); err != nil {
+		return err
+	}
 
 	// Render rows
 	for _, row := range t.Rows {
@@ -152,7 +156,9 @@ func (r *TableRenderer) RenderSimple(t *Table) error {
 				rowParts[i] = cell
 			}
 		}
-		fmt.Fprintln(r.w, strings.Join(rowParts, "  "))
+		if _, err := fmt.Fprintln(r.w, strings.Join(rowParts, "  ")); err != nil {
+			return err
+		}
 	}
 
 	return nil
