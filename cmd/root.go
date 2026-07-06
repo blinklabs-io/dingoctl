@@ -131,7 +131,7 @@ func init() {
 	pf.StringVar(
 		&globalFlags.Output,
 		"output", "",
-		"output format: text, json, yaml",
+		"output format: text, json, yaml, table",
 	)
 	pf.BoolVar(
 		&globalFlags.Quiet,
@@ -285,7 +285,7 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 	}
 	if !output.Format(outputFormat).IsValid() {
 		return fmt.Errorf(
-			"invalid --output %q: must be one of text, json, yaml",
+			"invalid --output %q: must be one of text, json, yaml, table",
 			outputFormat,
 		)
 	}

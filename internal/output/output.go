@@ -32,15 +32,16 @@ import (
 type Format string
 
 const (
-	FormatText Format = "text"
-	FormatJSON Format = "json"
-	FormatYAML Format = "yaml"
+	FormatText  Format = "text"
+	FormatJSON  Format = "json"
+	FormatYAML  Format = "yaml"
+	FormatTable Format = "table"
 )
 
 // IsValid reports whether f is a recognised output format.
 func (f Format) IsValid() bool {
 	switch f {
-	case FormatText, FormatJSON, FormatYAML:
+	case FormatText, FormatJSON, FormatYAML, FormatTable:
 		return true
 	default:
 		return false
@@ -66,15 +67,20 @@ type Printer struct {
 	format Format
 	quiet  bool
 	color  bool
+	text   *TextRenderer
+	table  *TableRenderer
 }
 
 // New creates a Printer that writes to w.
 func New(w io.Writer, format Format, quiet bool) *Printer {
+	color := ColorEnabled(w)
 	return &Printer{
 		w:      w,
 		format: format,
 		quiet:  quiet,
-		color:  ColorEnabled(w),
+		color:  color,
+		text:   NewTextRenderer(w, color),
+		table:  NewTableRenderer(w, color),
 	}
 }
 
@@ -113,4 +119,88 @@ func (p *Printer) Println(msg string) {
 // ColorEnabled returns whether this printer will use ANSI colors.
 func (p *Printer) ColorEnabled() bool {
 	return p.color
+}
+
+// Text returns the text renderer for styled output.
+// Only applies to text format; returns nil for JSON/YAML.
+func (p *Printer) Text() *TextRenderer {
+	if p.format != FormatText {
+		return nil
+	}
+	return p.text
+}
+
+// Table returns the table renderer for tabular output.
+// Only applies to text format; returns nil for JSON/YAML.
+func (p *Printer) Table() *TableRenderer {
+	if p.format != FormatText {
+		return nil
+	}
+	return p.table
+}
+
+// NewProgressBar creates a progress bar for this printer.
+// Returns nil if quiet mode is enabled.
+func (p *Printer) NewProgressBar(width int) *ProgressBar {
+	if p.quiet {
+		return nil
+	}
+	return NewProgressBar(p.w, p.color, width)
+}
+
+// NewSpinner creates a spinner for this printer.
+// Returns nil if quiet mode is enabled.
+func (p *Printer) NewSpinner() *Spinner {
+	if p.quiet {
+		return nil
+	}
+	return NewSpinner(p.w, p.color)
+}
+
+// Success writes a success message (text format only).
+func (p *Printer) Success(msg string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Success(msg)
+}
+
+// Error writes an error message (text format only).
+func (p *Printer) Error(msg string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Error(msg)
+}
+
+// Warning writes a warning message (text format only).
+func (p *Printer) Warning(msg string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Warning(msg)
+}
+
+// Info writes an informational message (text format only).
+func (p *Printer) Info(msg string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Info(msg)
+}
+
+// Header writes a section header (text format only).
+func (p *Printer) Header(text string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Header(text)
+}
+
+// KeyValue writes a key-value pair (text format only).
+func (p *Printer) KeyValue(key, value string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.KeyValue(key, value)
 }

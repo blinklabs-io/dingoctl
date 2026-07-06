@@ -156,7 +156,7 @@ func TestPersistentPreRun_TimeoutFromEnv(t *testing.T) {
 // format value causes persistentPreRun to return an error.
 func TestPersistentPreRun_InvalidOutput(t *testing.T) {
 	resetForTest()
-	viper.Set("output", "table")
+	viper.Set("output", "invalid")
 
 	err := persistentPreRun(nil, nil)
 	if err == nil {
