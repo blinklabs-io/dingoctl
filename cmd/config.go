@@ -145,8 +145,7 @@ Examples:
 				return err
 			}
 
-			printer.Println(fmt.Sprintf("Set %s = %s in profile %q", key, value, profileName))
-			return nil
+			return printer.Print(fmt.Sprintf("Set %s = %s in profile %q", key, value, profileName))
 		},
 	}
 
@@ -173,8 +172,7 @@ Use --verbose to show all settings for each profile.`,
 			}
 
 			if len(cfg.Profiles) == 0 {
-				printer.Println("No profiles configured")
-				return nil
+				return printer.Print("No profiles configured")
 			}
 
 			names := cfg.ListProfiles()
@@ -266,8 +264,7 @@ The current profile is used by default when no --profile flag is provided.`,
 				return err
 			}
 
-			printer.Println(fmt.Sprintf("Switched to profile %q", profileName))
-			return nil
+			return printer.Print(fmt.Sprintf("Switched to profile %q", profileName))
 		},
 	}
 
