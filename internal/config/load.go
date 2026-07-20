@@ -161,7 +161,7 @@ func (c *Config) Validate() error {
 func (p *Profile) Validate() error {
 	// Validate output format if specified
 	if p.Output != "" {
-		validFormats := []string{"text", "json", "yaml"}
+		validFormats := []string{"text", "json", "yaml", "table"}
 		valid := false
 		for _, format := range validFormats {
 			if p.Output == format {
@@ -170,7 +170,7 @@ func (p *Profile) Validate() error {
 			}
 		}
 		if !valid {
-			return fmt.Errorf("invalid output format %q: must be one of text, json, yaml", p.Output)
+			return fmt.Errorf("invalid output format %q: must be one of text, json, yaml, table", p.Output)
 		}
 	}
 

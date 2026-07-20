@@ -64,6 +64,7 @@ Examples:
   dingoctl config get output`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -84,8 +85,7 @@ Examples:
 				return err
 			}
 
-			fmt.Println(value)
-			return nil
+			return printer.Print(value)
 		},
 	}
 
@@ -112,6 +112,7 @@ Examples:
   dingoctl config set timeout 60s`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -144,7 +145,7 @@ Examples:
 				return err
 			}
 
-			fmt.Printf("Set %s = %s in profile %q\n", key, value, profileName)
+			printer.Println(fmt.Sprintf("Set %s = %s in profile %q", key, value, profileName))
 			return nil
 		},
 	}
@@ -165,19 +166,46 @@ func newConfigListCmd() *cobra.Command {
 
 Use --verbose to show all settings for each profile.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 
 			if len(cfg.Profiles) == 0 {
-				fmt.Println("No profiles configured")
+				printer.Println("No profiles configured")
 				return nil
 			}
 
 			names := cfg.ListProfiles()
 			sort.Strings(names)
 
+			// For structured output formats, return profile data as structured data
+			if printer.Format() == "json" || printer.Format() == "yaml" || printer.Format() == "table" {
+				type ProfileInfo struct {
+					Name    string          `json:"name" yaml:"name"`
+					Current bool            `json:"current" yaml:"current"`
+					Profile *config.Profile `json:"profile,omitempty" yaml:"profile,omitempty"`
+				}
+				var profiles []ProfileInfo
+				for _, name := range names {
+					profile := cfg.GetProfile(name)
+					if profile == nil {
+						continue
+					}
+					info := ProfileInfo{
+						Name:    name,
+						Current: name == cfg.CurrentProfile,
+					}
+					if verbose {
+						info.Profile = profile
+					}
+					profiles = append(profiles, info)
+				}
+				return printer.Print(profiles)
+			}
+
+			// For text output, use the original format
 			for _, name := range names {
 				profile := cfg.GetProfile(name)
 				if profile == nil {
@@ -190,15 +218,15 @@ Use --verbose to show all settings for each profile.`,
 				}
 
 				if verbose {
-					fmt.Printf("%s %s:\n", marker, name)
+					printer.Println(fmt.Sprintf("%s %s:", marker, name))
 					data, _ := yaml.Marshal(profile)
 					for _, line := range strings.Split(string(data), "\n") {
 						if line != "" {
-							fmt.Printf("    %s\n", line)
+							printer.Println(fmt.Sprintf("    %s", line))
 						}
 					}
 				} else {
-					fmt.Printf("%s %s\n", marker, name)
+					printer.Println(fmt.Sprintf("%s %s", marker, name))
 				}
 			}
 
@@ -221,6 +249,7 @@ func newConfigUseCmd() *cobra.Command {
 The current profile is used by default when no --profile flag is provided.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -237,7 +266,7 @@ The current profile is used by default when no --profile flag is provided.`,
 				return err
 			}
 
-			fmt.Printf("Switched to profile %q\n", profileName)
+			printer.Println(fmt.Sprintf("Switched to profile %q", profileName))
 			return nil
 		},
 	}
@@ -252,13 +281,13 @@ func newConfigCurrentCmd() *cobra.Command {
 		Short: "Show the current profile",
 		Long:  `Show the name of the current profile.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(cfg.CurrentProfile)
-			return nil
+			return printer.Print(cfg.CurrentProfile)
 		},
 	}
 
@@ -272,8 +301,8 @@ func newConfigPathCmd() *cobra.Command {
 		Short: "Show the configuration file path",
 		Long:  `Show the path to the configuration file.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println(config.GetConfigPath())
-			return nil
+			printer := GetOutputPrinter()
+			return printer.Print(config.GetConfigPath())
 		},
 	}
 
@@ -326,8 +355,8 @@ func setProfileField(p *config.Profile, key, value string) error {
 		}
 		p.Timeout = d
 	case "output":
-		if value != "text" && value != "json" && value != "yaml" {
-			return fmt.Errorf("invalid output format %q: must be text, json, or yaml", value)
+		if value != "text" && value != "json" && value != "yaml" && value != "table" {
+			return fmt.Errorf("invalid output format %q: must be text, json, yaml, or table", value)
 		}
 		p.Output = value
 	default:
