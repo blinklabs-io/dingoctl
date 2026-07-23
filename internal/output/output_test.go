@@ -111,6 +111,27 @@ func TestPrintTable_GenericFallbackForSingleStruct(t *testing.T) {
 	}
 }
 
+// TestPrintTable_SanitizesTabsAndNewlinesInCells checks that a cell value
+// containing a tab or newline (e.g. a snapshot description) is neutralized
+// rather than corrupting the table's column/row structure.
+func TestPrintTable_SanitizesTabsAndNewlinesInCells(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
+
+	if err := p.Print(singleRecord{Name: "line1\tline2\nline3", Count: 1}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (header + 1 row), got %d: %q", len(lines), out)
+	}
+	if strings.Contains(lines[1], "\n") {
+		t.Errorf("row must not contain an embedded newline: %q", lines[1])
+	}
+}
+
 type withNilPointer struct {
 	Name string  `json:"name"`
 	When *string `json:"when"`

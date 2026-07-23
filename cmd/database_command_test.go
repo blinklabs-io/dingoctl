@@ -304,7 +304,9 @@ func setupDatabaseCommandTest(t *testing.T) (*fakeFullDatabaseService, *bytes.Bu
 		sessionErr = nil
 	})
 
+	prevGlobalFlags := globalFlags
 	globalFlags = GlobalFlags{Output: "text"}
+	t.Cleanup(func() { globalFlags = prevGlobalFlags })
 
 	var buf bytes.Buffer
 	outputWriterForTest = &buf

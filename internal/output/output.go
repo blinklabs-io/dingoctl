@@ -142,12 +142,22 @@ func printTable(w io.Writer, v any) error {
 		return err
 	}
 	for _, row := range rows {
-		if _, err := fmt.Fprintln(tw, strings.Join(row, "\t")); err != nil {
+		safeRow := make([]string, len(row))
+		for i, cell := range row {
+			safeRow[i] = tableCellSanitizer.Replace(cell)
+		}
+		if _, err := fmt.Fprintln(tw, strings.Join(safeRow, "\t")); err != nil {
 			return err
 		}
 	}
 	return tw.Flush()
 }
+
+// tableCellSanitizer strips characters a cell value could contain (e.g. a
+// snapshot description or operation message) that would otherwise be
+// misread as tabwriter column delimiters or row breaks, corrupting the
+// one-record-per-row table structure.
+var tableCellSanitizer = strings.NewReplacer("\t", " ", "\r", " ", "\n", " ")
 
 // genericSingleRowTable reflects over v's exported fields to build a
 // one-row table: header from each field's `json` tag name (falling back to

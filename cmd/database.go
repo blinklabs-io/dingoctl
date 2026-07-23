@@ -28,6 +28,7 @@ import (
 	"connectrpc.com/connect"
 	databasev1alpha1 "github.com/blinklabs-io/bark/proto/v1alpha1/database"
 	databasev1alpha1connect "github.com/blinklabs-io/bark/proto/v1alpha1/database/databasev1alpha1connect"
+	"github.com/blinklabs-io/dingoctl/internal/client"
 	"github.com/blinklabs-io/dingoctl/internal/output"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -254,7 +255,7 @@ func newSnapshotCreateCmd() *cobra.Command {
 
 			ctx, cancel := withOptionalTimeout(cmd.Context(), waitTimeout)
 			defer cancel()
-			progress, err := streamUntilTerminal(ctx, cmd.Context(), svc, opID)
+			progress, err := streamUntilTerminal(ctx, cmd.Context(), c.Config(), svc, opID)
 			if err != nil {
 				return err
 			}
@@ -379,7 +380,7 @@ func newSnapshotVerifyCmd() *cobra.Command {
 
 			ctx, cancel := withOptionalTimeout(cmd.Context(), waitTimeout)
 			defer cancel()
-			progress, err := streamUntilTerminal(ctx, cmd.Context(), svc, opID)
+			progress, err := streamUntilTerminal(ctx, cmd.Context(), c.Config(), svc, opID)
 			if err != nil {
 				return err
 			}
@@ -477,7 +478,7 @@ serving) for the whole duration of the restore.`,
 
 			ctx, cancel := withOptionalTimeout(cmd.Context(), waitTimeout)
 			defer cancel()
-			progress, err := streamUntilTerminal(ctx, cmd.Context(), svc, opID)
+			progress, err := streamUntilTerminal(ctx, cmd.Context(), c.Config(), svc, opID)
 			if err != nil {
 				return err
 			}
@@ -585,7 +586,7 @@ duration of the operation.`,
 
 			ctx, cancel := withOptionalTimeout(cmd.Context(), waitTimeout)
 			defer cancel()
-			progress, err := streamUntilTerminal(ctx, cmd.Context(), svc, opID)
+			progress, err := streamUntilTerminal(ctx, cmd.Context(), c.Config(), svc, opID)
 			if err != nil {
 				return err
 			}
@@ -735,39 +736,62 @@ func confirm(cmd *cobra.Command, prompt string, noConfirm bool) (bool, error) {
 // an error from that initial call rather than from the Receive() loop. Only
 // checking the loop's exit would silently drop the cancel request in that
 // case and leave the operation orphaned on the server.
+// errStreamReachedTerminal is the StreamHandler sentinel used to stop
+// client.RunServerStream as soon as a terminal status arrives, rather than
+// waiting for the server to close the stream on its own. RunServerStream
+// never retries a handler error, so this always surfaces back unchanged and
+// is translated back to a nil error below.
+var errStreamReachedTerminal = errors.New("operation reached a terminal status")
+
 func streamUntilTerminal(
 	ctx context.Context,
 	parentCtx context.Context,
+	cfg client.Config,
 	svc databasev1alpha1connect.DatabaseServiceClient,
 	opID string,
 ) (*databasev1alpha1.OperationProgress, error) {
-	stream, err := svc.StreamOperationProgress(
-		ctx,
-		connect.NewRequest(&databasev1alpha1.StreamOperationProgressRequest{OperationId: opID}),
-	)
-	if err != nil {
-		requestCancelIfInterrupted(parentCtx, svc, opID)
-		return nil, err
-	}
-	defer func() { _ = stream.Close() }()
-
 	var last *databasev1alpha1.OperationProgress
-	for stream.Receive() {
-		last = stream.Msg().GetProgress()
-		if err := GetOutputPrinter().Print(operationStatusFromProto(last, "", nil)); err != nil {
-			return nil, err
-		}
-		if isTerminalStatus(last.GetStatus()) {
-			return last, nil
-		}
-	}
+	runErr := client.RunServerStream(
+		ctx,
+		cfg,
+		func(ctx context.Context) (*connect.ServerStreamForClient[databasev1alpha1.StreamOperationProgressResponse], error) {
+			return svc.StreamOperationProgress(
+				ctx,
+				connect.NewRequest(&databasev1alpha1.StreamOperationProgressRequest{OperationId: opID}),
+			)
+		},
+		func(msg *databasev1alpha1.StreamOperationProgressResponse) error {
+			last = msg.GetProgress()
+			if err := GetOutputPrinter().Print(operationStatusFromProto(last, "", nil)); err != nil {
+				return err
+			}
+			if isTerminalStatus(last.GetStatus()) {
+				return errStreamReachedTerminal
+			}
+			return nil
+		},
+	)
 
-	streamErr := stream.Err()
-	if streamErr == nil {
-		streamErr = ctx.Err()
+	switch {
+	case errors.Is(runErr, errStreamReachedTerminal):
+		runErr = nil
+	case runErr == nil && ctx.Err() != nil:
+		// Guards a clean stream close (Receive() -> false, Err() -> nil)
+		// racing a context cancellation/timeout that fired just as the
+		// stream ended: without this, a --wait-timeout expiry or Ctrl+C
+		// landing at that exact moment would be reported as success.
+		runErr = ctx.Err()
+	case runErr == nil && last == nil:
+		// The server closed the stream without ever reporting progress.
+		// Without this, the caller renders a misleading
+		// status=unspecified progress=0% success instead of an error.
+		runErr = fmt.Errorf(
+			"operation stream for operation_id=%s closed with no progress reported",
+			opID,
+		)
 	}
 	requestCancelIfInterrupted(parentCtx, svc, opID)
-	return last, streamErr
+	return last, runErr
 }
 
 // requestCancelIfInterrupted asks the server to cancel opID when parentCtx

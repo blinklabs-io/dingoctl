@@ -25,6 +25,7 @@ import (
 	"connectrpc.com/connect"
 	databasev1alpha1 "github.com/blinklabs-io/bark/proto/v1alpha1/database"
 	databasev1alpha1connect "github.com/blinklabs-io/bark/proto/v1alpha1/database/databasev1alpha1connect"
+	dingoclient "github.com/blinklabs-io/dingoctl/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -322,7 +323,7 @@ func TestStreamUntilTerminal_StopsAtTerminalStatus(t *testing.T) {
 		{OperationId: "op1", Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 0},
 	})
 
-	got, err := streamUntilTerminal(context.Background(), context.Background(), client, "op1")
+	got, err := streamUntilTerminal(context.Background(), context.Background(), dingoclient.Config{}, client, "op1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -341,12 +342,28 @@ func TestStreamUntilTerminal_StreamEndsWithoutTerminalStatus(t *testing.T) {
 		{OperationId: "op1", Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 30},
 	})
 
-	got, err := streamUntilTerminal(context.Background(), context.Background(), client, "op1")
+	got, err := streamUntilTerminal(context.Background(), context.Background(), dingoclient.Config{}, client, "op1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got.GetStatus() != databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING {
 		t.Errorf("status: got %v, want RUNNING", got.GetStatus())
+	}
+}
+
+// TestStreamUntilTerminal_EmptyStreamReturnsError checks that a stream
+// closing cleanly without ever reporting a single progress update surfaces
+// an error, rather than the caller rendering a misleading
+// status=unspecified progress=0% success.
+func TestStreamUntilTerminal_EmptyStreamReturnsError(t *testing.T) {
+	client, _ := newFakeDatabaseServiceClient(t, nil)
+
+	got, err := streamUntilTerminal(context.Background(), context.Background(), dingoclient.Config{}, client, "op1")
+	if err == nil {
+		t.Fatal("expected error for a stream that reported no progress")
+	}
+	if got != nil {
+		t.Errorf("expected nil progress, got %+v", got)
 	}
 }
 
@@ -360,7 +377,7 @@ func TestStreamUntilTerminal_RealInterruptRequestsCancel(t *testing.T) {
 	parentCtx, cancelParent := context.WithCancel(context.Background())
 	cancelParent()
 
-	if _, err := streamUntilTerminal(context.Background(), parentCtx, client, "op1"); err != nil {
+	if _, err := streamUntilTerminal(context.Background(), parentCtx, dingoclient.Config{}, client, "op1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
