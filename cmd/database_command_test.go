@@ -251,7 +251,14 @@ func (f *fakeFullDatabaseService) StreamOperationProgress(
 	stream *connect.ServerStream[databasev1alpha1.StreamOperationProgressResponse],
 ) error {
 	if f.blockStreamUntilCancelled {
-		f.streamStartedOnce.Do(func() { close(f.streamStarted) })
+		// Guarded rather than assumed-initialized: a future test that sets
+		// blockStreamUntilCancelled without also setting streamStarted
+		// would otherwise panic on close(nil).
+		f.streamStartedOnce.Do(func() {
+			if f.streamStarted != nil {
+				close(f.streamStarted)
+			}
+		})
 		<-ctx.Done()
 		return ctx.Err()
 	}

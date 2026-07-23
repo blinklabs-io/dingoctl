@@ -178,6 +178,25 @@ func TestRetryResourceExhaustedIsRetried(t *testing.T) {
 	}
 }
 
+// TestRetryWithNoRetrySkipsRetryEvenOnTransientError checks that a call made
+// with a WithNoRetry context makes exactly one attempt, even for an error
+// that would otherwise be retried — the guard non-idempotent, operation-
+// starting RPCs (CreateSnapshot, Restore, Truncate, VerifySnapshot) rely on
+// to avoid resending a request whose response may have been lost after the
+// server already accepted it.
+func TestRetryWithNoRetrySkipsRetryEvenOnTransientError(t *testing.T) {
+	fn, calls := sequence(unavailable(), nil)
+	wrapped := retryInterceptor(testCfg(3))(fn)
+
+	_, err := wrapped(WithNoRetry(context.Background()), newReq())
+	if err == nil {
+		t.Fatal("expected the transient error to surface, since WithNoRetry must not retry it")
+	}
+	if *calls != 1 {
+		t.Fatalf("expected exactly 1 call under WithNoRetry, got %d", *calls)
+	}
+}
+
 func TestRetryPermanentErrorNotRetried(t *testing.T) {
 	fn, calls := sequence(notFound())
 	wrapped := retryInterceptor(testCfg(3))(fn)

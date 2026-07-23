@@ -52,6 +52,7 @@ both prompt for confirmation unless --no-confirm is given.`,
 
 	cmd.AddCommand(newDatabaseInfoCmd())
 	cmd.AddCommand(newDatabaseStatusCmd())
+	cmd.AddCommand(newDatabaseHistoryCmd())
 	cmd.AddCommand(newDatabaseSnapshotCmd())
 	cmd.AddCommand(newDatabaseRestoreCmd())
 	cmd.AddCommand(newDatabaseTruncateCmd())
@@ -182,20 +183,91 @@ func newDatabaseStatusCmd() *cobra.Command {
 			}
 			defer func() { _ = stream.Close() }()
 
+			// Non-text formats must render as exactly one document: only
+			// the final update (whichever ends the loop, terminal or not)
+			// is printed for them, matching streamUntilTerminal's same
+			// restriction; text mode keeps live-tailing every update.
+			textOutput := isTextOutput()
+			var last *databasev1alpha1.OperationProgress
 			for stream.Receive() {
-				progress := stream.Msg().GetProgress()
-				if err := GetOutputPrinter().Print(operationStatusFromProto(progress, "", nil)); err != nil {
-					return err
+				last = stream.Msg().GetProgress()
+				final := !follow || isTerminalStatus(last.GetStatus())
+				if textOutput || final {
+					if err := GetOutputPrinter().Print(operationStatusFromProto(last, "", nil)); err != nil {
+						return err
+					}
 				}
-				if !follow || isTerminalStatus(progress.GetStatus()) {
+				if final {
 					break
 				}
 			}
-			return stream.Err()
+			if err := stream.Err(); err != nil {
+				return err
+			}
+			if last == nil {
+				return fmt.Errorf(
+					"operation stream for operation_id=%s closed with no progress reported",
+					opID,
+				)
+			}
+			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&follow, "follow", false, "keep streaming progress until the operation finishes")
+	return cmd
+}
+
+// ── history ──────────────────────────────────────────────────────────────
+
+func newDatabaseHistoryCmd() *cobra.Command {
+	var (
+		typeFilter   string
+		statusFilter string
+		limit        uint32
+		pageToken    string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "history",
+		Short: "List past snapshot/restore/truncate/verify operations",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			req := &databasev1alpha1.GetOperationHistoryRequest{
+				PageSize:  limit,
+				PageToken: pageToken,
+			}
+			if typeFilter != "" {
+				t, err := operationTypeFromString(typeFilter)
+				if err != nil {
+					return err
+				}
+				req.TypeFilter = &t
+			}
+			if statusFilter != "" {
+				s, err := operationStatusFromString(statusFilter)
+				if err != nil {
+					return err
+				}
+				req.StatusFilter = &s
+			}
+
+			c, err := GetClient()
+			if err != nil {
+				return err
+			}
+			resp, err := c.DatabaseService().GetOperationHistory(cmd.Context(), connect.NewRequest(req))
+			if err != nil {
+				return err
+			}
+			return GetOutputPrinter().Print(operationHistoryFromProto(resp.Msg))
+		},
+	}
+
+	cmd.Flags().StringVar(&typeFilter, "type", "", "filter by operation type: snapshot, restore, truncate, verify")
+	cmd.Flags().StringVar(&statusFilter, "status", "", "filter by status: pending, running, completed, failed, cancelled")
+	cmd.Flags().Uint32Var(&limit, "limit", 0, "maximum number of records to return (0 = server default)")
+	cmd.Flags().StringVar(&pageToken, "page-token", "", "opaque next_page_token from a previous response, to fetch the next page")
 	return cmd
 }
 
@@ -233,8 +305,11 @@ func newSnapshotCreateCmd() *cobra.Command {
 			}
 			svc := c.DatabaseService()
 
+			// CreateSnapshot starts a new server-side operation and has no
+			// idempotency key; see client.WithNoRetry's doc comment for why
+			// this can't safely go through the shared retry policy.
 			createResp, err := svc.CreateSnapshot(
-				cmd.Context(),
+				client.WithNoRetry(cmd.Context()),
 				connect.NewRequest(&databasev1alpha1.CreateSnapshotRequest{
 					Name:        name,
 					Description: description,
@@ -277,7 +352,10 @@ func newSnapshotCreateCmd() *cobra.Command {
 // no case where an operator would want the narrower view, so "list"
 // always shows everything actually available to restore/verify/delete.
 func newSnapshotListCmd() *cobra.Command {
-	var limit uint32
+	var (
+		limit     uint32
+		pageToken string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -290,7 +368,10 @@ func newSnapshotListCmd() *cobra.Command {
 			}
 			resp, err := c.DatabaseService().ListAvailableSnapshots(
 				cmd.Context(),
-				connect.NewRequest(&databasev1alpha1.ListAvailableSnapshotsRequest{PageSize: limit}),
+				connect.NewRequest(&databasev1alpha1.ListAvailableSnapshotsRequest{
+					PageSize:  limit,
+					PageToken: pageToken,
+				}),
 			)
 			if err != nil {
 				return err
@@ -300,6 +381,7 @@ func newSnapshotListCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Uint32Var(&limit, "limit", 0, "maximum number of snapshots to return (0 = server default)")
+	cmd.Flags().StringVar(&pageToken, "page-token", "", "opaque next_page_token from a previous response, to fetch the next page")
 	return cmd
 }
 
@@ -336,10 +418,7 @@ func newSnapshotDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return GetOutputPrinter().Print(snapshotDeletedResult{
-				SnapshotID: snapshotID,
-				DeletedAt:  resp.Msg.GetDeletedAt().AsTime(),
-			})
+			return GetOutputPrinter().Print(snapshotDeletedResultFromProto(snapshotID, resp.Msg))
 		},
 	}
 
@@ -365,8 +444,10 @@ func newSnapshotVerifyCmd() *cobra.Command {
 			}
 			svc := c.DatabaseService()
 
+			// VerifySnapshot starts a new server-side operation; see
+			// CreateSnapshot's comment above / client.WithNoRetry.
 			resp, err := svc.VerifySnapshot(
-				cmd.Context(),
+				client.WithNoRetry(cmd.Context()),
 				connect.NewRequest(&databasev1alpha1.VerifySnapshotRequest{SnapshotId: snapshotID}),
 			)
 			if err != nil {
@@ -463,8 +544,10 @@ serving) for the whole duration of the restore.`,
 			}
 			svc := c.DatabaseService()
 
+			// Restore starts a new server-side operation; see CreateSnapshot's
+			// comment above / client.WithNoRetry.
 			restoreResp, err := svc.Restore(
-				cmd.Context(),
+				client.WithNoRetry(cmd.Context()),
 				connect.NewRequest(&databasev1alpha1.RestoreRequest{SnapshotId: snapshotID}),
 			)
 			if err != nil {
@@ -571,8 +654,10 @@ duration of the operation.`,
 			}
 			svc := c.DatabaseService()
 
+			// Truncate starts a new server-side operation; see CreateSnapshot's
+			// comment above / client.WithNoRetry.
 			truncResp, err := svc.Truncate(
-				cmd.Context(),
+				client.WithNoRetry(cmd.Context()),
 				connect.NewRequest(&databasev1alpha1.TruncateRequest{Target: target}),
 			)
 			if err != nil {
@@ -672,6 +757,9 @@ func blockRefFromFlags(
 		set++
 	}
 	if cmd.Flags().Changed("block-hash") {
+		if blockHash == "" {
+			return nil, errors.New("--block-hash must not be empty")
+		}
 		if _, err := hex.DecodeString(blockHash); err != nil {
 			return nil, fmt.Errorf("invalid --block-hash: %w", err)
 		}
@@ -750,6 +838,15 @@ func streamUntilTerminal(
 	svc databasev1alpha1connect.DatabaseServiceClient,
 	opID string,
 ) (*databasev1alpha1.OperationProgress, error) {
+	// Non-text formats (json/yaml/table) must render as exactly one
+	// document: printing every intermediate update the way text mode's
+	// live tailing does would instead emit one top-level value per update,
+	// back to back, which is not valid JSON/YAML and repeats the table
+	// header. The caller (printTerminalResult) prints the final outcome
+	// exactly once after this returns, so only text mode prints progress
+	// here as it streams in.
+	textOutput := isTextOutput()
+
 	var last *databasev1alpha1.OperationProgress
 	runErr := client.RunServerStream(
 		ctx,
@@ -762,8 +859,10 @@ func streamUntilTerminal(
 		},
 		func(msg *databasev1alpha1.StreamOperationProgressResponse) error {
 			last = msg.GetProgress()
-			if err := GetOutputPrinter().Print(operationStatusFromProto(last, "", nil)); err != nil {
-				return err
+			if textOutput {
+				if err := GetOutputPrinter().Print(operationStatusFromProto(last, "", nil)); err != nil {
+					return err
+				}
 			}
 			if isTerminalStatus(last.GetStatus()) {
 				return errStreamReachedTerminal
@@ -839,6 +938,21 @@ func requestCancelOnInterrupt(svc databasev1alpha1connect.DatabaseServiceClient,
 	)
 }
 
+// isTextOutput reports whether the current output format renders as text.
+// This mirrors Printer.Print's own switch, whose default case (anything
+// that isn't json/yaml/table, including an empty/unset globalFlags.Output)
+// falls through to text — checking output.FormatText by exact equality
+// would disagree with that fallback and, for callers that gate streaming
+// output on this, wrongly suppress output on an unrecognized format.
+func isTextOutput() bool {
+	switch output.Format(globalFlags.Output) {
+	case output.FormatJSON, output.FormatYAML, output.FormatTable:
+		return false
+	default:
+		return true
+	}
+}
+
 func isTerminalStatus(s databasev1alpha1.OperationStatus) bool {
 	switch s {
 	case databasev1alpha1.OperationStatus_OPERATION_STATUS_COMPLETED,
@@ -882,9 +996,51 @@ func operationTypeString(t databasev1alpha1.OperationType) string {
 	}
 }
 
+// operationTypeFromString parses --type's value for "database history",
+// the reverse of operationTypeString.
+func operationTypeFromString(s string) (databasev1alpha1.OperationType, error) {
+	switch strings.ToLower(s) {
+	case "snapshot":
+		return databasev1alpha1.OperationType_OPERATION_TYPE_SNAPSHOT, nil
+	case "restore":
+		return databasev1alpha1.OperationType_OPERATION_TYPE_RESTORE, nil
+	case "truncate":
+		return databasev1alpha1.OperationType_OPERATION_TYPE_TRUNCATE, nil
+	case "verify":
+		return databasev1alpha1.OperationType_OPERATION_TYPE_VERIFY, nil
+	default:
+		return databasev1alpha1.OperationType_OPERATION_TYPE_UNSPECIFIED, fmt.Errorf(
+			"invalid --type %q: must be one of snapshot, restore, truncate, verify", s,
+		)
+	}
+}
+
+// operationStatusFromString parses --status's value for "database
+// history", the reverse of statusString.
+func operationStatusFromString(s string) (databasev1alpha1.OperationStatus, error) {
+	switch strings.ToLower(s) {
+	case "pending":
+		return databasev1alpha1.OperationStatus_OPERATION_STATUS_PENDING, nil
+	case "running":
+		return databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, nil
+	case "completed":
+		return databasev1alpha1.OperationStatus_OPERATION_STATUS_COMPLETED, nil
+	case "failed":
+		return databasev1alpha1.OperationStatus_OPERATION_STATUS_FAILED, nil
+	case "cancelled":
+		return databasev1alpha1.OperationStatus_OPERATION_STATUS_CANCELLED, nil
+	default:
+		return databasev1alpha1.OperationStatus_OPERATION_STATUS_UNSPECIFIED, fmt.Errorf(
+			"invalid --status %q: must be one of pending, running, completed, failed, cancelled", s,
+		)
+	}
+}
+
 // printTerminalResult prints the final status of a --wait'd operation and
-// returns a non-nil error when it finished as FAILED, so the process exits
-// non-zero even though the RPCs themselves all succeeded.
+// returns a non-nil error when it finished as FAILED or CANCELLED, so the
+// process exits non-zero even though the RPCs themselves all succeeded —
+// automation driving --wait must not mistake a cancelled operation for one
+// that actually completed.
 func printTerminalResult(
 	progress *databasev1alpha1.OperationProgress,
 	snapshotID string,
@@ -899,8 +1055,10 @@ func printTerminalResult(
 	if err := GetOutputPrinter().Print(result); err != nil {
 		return err
 	}
-	if progress.GetStatus() == databasev1alpha1.OperationStatus_OPERATION_STATUS_FAILED {
-		return fmt.Errorf("%s failed: %s", kind, progress.GetMessage())
+	switch status := progress.GetStatus(); status {
+	case databasev1alpha1.OperationStatus_OPERATION_STATUS_FAILED,
+		databasev1alpha1.OperationStatus_OPERATION_STATUS_CANCELLED:
+		return fmt.Errorf("%s %s: %s", kind, statusString(status), progress.GetMessage())
 	}
 	return nil
 }
@@ -996,7 +1154,7 @@ func operationStatusFromProto(
 		t := ts.AsTime()
 		r.CompletedAt = &t
 	}
-	if blocksRemoved != nil && *blocksRemoved > 0 {
+	if blocksRemoved != nil {
 		r.BlocksRemoved = blocksRemoved
 	}
 	return r
@@ -1212,10 +1370,83 @@ func (r snapshotListResult) TableRows() [][]string {
 }
 
 type snapshotDeletedResult struct {
-	SnapshotID string    `json:"snapshot_id" yaml:"snapshot_id"`
-	DeletedAt  time.Time `json:"deleted_at" yaml:"deleted_at"`
+	SnapshotID string     `json:"snapshot_id" yaml:"snapshot_id"`
+	DeletedAt  *time.Time `json:"deleted_at,omitempty" yaml:"deleted_at,omitempty"`
 }
 
 func (r snapshotDeletedResult) String() string {
+	if r.DeletedAt == nil {
+		return fmt.Sprintf("Deleted snapshot %s", r.SnapshotID)
+	}
 	return fmt.Sprintf("Deleted snapshot %s at %s", r.SnapshotID, r.DeletedAt.Format(time.RFC3339))
+}
+
+// snapshotDeletedResultFromProto builds a snapshotDeletedResult, leaving
+// DeletedAt nil when the server didn't set it rather than rendering the
+// Unix epoch as if that were the real deletion time.
+func snapshotDeletedResultFromProto(
+	snapshotID string,
+	resp *databasev1alpha1.DeleteSnapshotResponse,
+) snapshotDeletedResult {
+	r := snapshotDeletedResult{SnapshotID: snapshotID}
+	if ts := resp.GetDeletedAt(); ts != nil {
+		t := ts.AsTime()
+		r.DeletedAt = &t
+	}
+	return r
+}
+
+type operationHistoryResult struct {
+	Records       []operationRecordResult `json:"records" yaml:"records"`
+	NextPageToken string                  `json:"next_page_token,omitempty" yaml:"next_page_token,omitempty"`
+}
+
+func (r operationHistoryResult) String() string {
+	if len(r.Records) == 0 {
+		return "no operations found"
+	}
+	lines := make([]string, len(r.Records))
+	for i, rec := range r.Records {
+		lines[i] = rec.String()
+	}
+	out := strings.Join(lines, "\n")
+	if r.NextPageToken != "" {
+		out += fmt.Sprintf("\nnext_page_token=%s", r.NextPageToken)
+	}
+	return out
+}
+
+func operationHistoryFromProto(
+	resp *databasev1alpha1.GetOperationHistoryResponse,
+) operationHistoryResult {
+	records := make([]operationRecordResult, len(resp.GetRecords()))
+	for i, r := range resp.GetRecords() {
+		records[i] = operationRecordFromProto(r)
+	}
+	return operationHistoryResult{Records: records, NextPageToken: resp.GetNextPageToken()}
+}
+
+var _ output.TableWriter = operationHistoryResult{}
+
+// TableHeader/TableRows make operationHistoryResult a output.TableWriter,
+// the same one-row-per-element pattern snapshotListResult uses above.
+func (r operationHistoryResult) TableHeader() []string {
+	return []string{"operation_id", "type", "status", "message", "started_at", "completed_at"}
+}
+
+func (r operationHistoryResult) TableRows() [][]string {
+	rows := make([][]string, len(r.Records))
+	for i, rec := range r.Records {
+		var startedAt, completedAt string
+		if rec.StartedAt != nil {
+			startedAt = rec.StartedAt.Format(time.RFC3339)
+		}
+		if rec.CompletedAt != nil {
+			completedAt = rec.CompletedAt.Format(time.RFC3339)
+		}
+		rows[i] = []string{
+			rec.OperationID, rec.Type, rec.Status, rec.Message, startedAt, completedAt,
+		}
+	}
+	return rows
 }

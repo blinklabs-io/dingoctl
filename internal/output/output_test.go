@@ -127,8 +127,11 @@ func TestPrintTable_SanitizesTabsAndNewlinesInCells(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines (header + 1 row), got %d: %q", len(lines), out)
 	}
-	if strings.Contains(lines[1], "\n") {
-		t.Errorf("row must not contain an embedded newline: %q", lines[1])
+	if !strings.Contains(lines[1], "line1 line2 line3") {
+		t.Errorf(
+			"expected the tab and newline in the cell value replaced with spaces, got row: %q",
+			lines[1],
+		)
 	}
 }
 

@@ -115,6 +115,20 @@ func TestBlockRefFromFlags_InvalidBlockHash(t *testing.T) {
 	}
 }
 
+// TestBlockRefFromFlags_EmptyBlockHash checks that --block-hash="" is
+// rejected rather than deferred to the server as a valid (if odd) target:
+// hex.DecodeString("") succeeds with a zero-length result, so this needs
+// its own explicit check.
+func TestBlockRefFromFlags_EmptyBlockHash(t *testing.T) {
+	cmd, _, _, _ := newTestTruncateFlags()
+	if err := cmd.Flags().Set("block-hash", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blockRefFromFlags(cmd, 0, "", 0); err == nil {
+		t.Fatal("expected error for empty --block-hash")
+	}
+}
+
 // ── confirm ──────────────────────────────────────────────────────────────
 
 // TestConfirm_NoConfirmSkipsPrompt checks that noConfirm=true short-circuits
@@ -200,6 +214,34 @@ func TestPrintTerminalResult_CompletedReturnsNil(t *testing.T) {
 	}
 	if err := printTerminalResult(progress, "", "truncate"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestPrintTerminalResult_CancelledReturnsError checks that a CANCELLED
+// terminal progress is treated as an error, not silently as success, so
+// automation driving --wait can't mistake a cancellation for completion.
+func TestPrintTerminalResult_CancelledReturnsError(t *testing.T) {
+	progress := &databasev1alpha1.OperationProgress{
+		OperationId: "op1",
+		Status:      databasev1alpha1.OperationStatus_OPERATION_STATUS_CANCELLED,
+	}
+	if err := printTerminalResult(progress, "", "truncate"); err == nil {
+		t.Fatal("expected error for a CANCELLED terminal result")
+	}
+}
+
+// TestOperationStatusFromProto_ZeroBlocksRemovedIsPreserved checks that a
+// truncate which legitimately removed zero blocks still reports
+// blocks_removed=0 rather than dropping the field entirely.
+func TestOperationStatusFromProto_ZeroBlocksRemovedIsPreserved(t *testing.T) {
+	progress := &databasev1alpha1.OperationProgress{OperationId: "op1"}
+	zero := uint64(0)
+	r := operationStatusFromProto(progress, "", &zero)
+	if r.BlocksRemoved == nil {
+		t.Fatal("expected BlocksRemoved to be set to 0, got nil")
+	}
+	if *r.BlocksRemoved != 0 {
+		t.Errorf("BlocksRemoved: got %d, want 0", *r.BlocksRemoved)
 	}
 }
 
