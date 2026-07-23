@@ -54,6 +54,60 @@ func (r listResult) TableRows() [][]string {
 	return rows
 }
 
+// listResultWithFooter additionally implements TableFooter, the way a
+// paginated list result (e.g. cmd's snapshotListResult/
+// operationHistoryResult) carries a next_page_token alongside its rows.
+type listResultWithFooter struct {
+	listResult
+	NextPageToken string
+}
+
+func (r listResultWithFooter) TableFooter() string {
+	if r.NextPageToken == "" {
+		return ""
+	}
+	return "next_page_token=" + r.NextPageToken
+}
+
+// TestPrintTable_RendersTableFooterWhenImplemented checks that a
+// TableFooter's non-empty line is appended after the table body, so
+// pagination metadata isn't silently dropped in table mode.
+func TestPrintTable_RendersTableFooterWhenImplemented(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
+
+	if err := p.Print(listResultWithFooter{
+		listResult:    listResult{Items: []string{"a"}},
+		NextPageToken: "tok123",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines (header + 1 row + footer), got %d: %q", len(lines), buf.String())
+	}
+	if lines[2] != "next_page_token=tok123" {
+		t.Errorf("footer line: got %q, want %q", lines[2], "next_page_token=tok123")
+	}
+}
+
+// TestPrintTable_EmptyTableFooterPrintsNothingExtra checks that an empty
+// TableFooter (no pagination token) doesn't add a stray blank line.
+func TestPrintTable_EmptyTableFooterPrintsNothingExtra(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
+
+	if err := p.Print(listResultWithFooter{listResult: listResult{Items: []string{"a"}}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (header + 1 row), got %d: %q", len(lines), buf.String())
+	}
+}
+
 // TestPrintTable_UsesTableWriterWhenImplemented checks that table mode
 // renders a TableWriter's own header/rows, one row per list element.
 func TestPrintTable_UsesTableWriterWhenImplemented(t *testing.T) {

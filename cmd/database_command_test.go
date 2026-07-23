@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -457,6 +458,43 @@ func TestDatabaseStatusCommand_FollowStreamsUntilCompleted(t *testing.T) {
 	}
 }
 
+// TestDatabaseStatusCommand_FollowNonTextEOFBeforeTerminalStillPrints checks
+// that "status --follow --output json" still prints the last known update
+// as a single JSON document when the server closes the stream cleanly
+// without ever reporting a terminal status — a naive "only print when the
+// loop's own terminal/!follow check fires" gate would otherwise return
+// success having printed nothing at all.
+func TestDatabaseStatusCommand_FollowNonTextEOFBeforeTerminalStillPrints(t *testing.T) {
+	fake, buf := setupDatabaseCommandTest(t)
+	globalFlags.Output = "json"
+	opID := "op-x"
+	fake.getDatabaseInfoResp = &databasev1alpha1.GetDatabaseInfoResponse{
+		OperationInProgress: true,
+		CurrentOperationId:  &opID,
+	}
+	fake.streamProgressions = []*databasev1alpha1.OperationProgress{
+		{OperationId: opID, Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 30},
+		{OperationId: opID, Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 60},
+	}
+
+	if err := mustExecute(t, []string{"status", "--follow"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dec := json.NewDecoder(buf)
+	var result map[string]any
+	if err := dec.Decode(&result); err != nil {
+		t.Fatalf("expected one JSON document reporting the last update, got decode error: %v (output: %s)", err, buf.String())
+	}
+	if status, _ := result["status"].(string); status != "running" {
+		t.Errorf("status: got %v, want running (the last update seen)", result["status"])
+	}
+	var second map[string]any
+	if err := dec.Decode(&second); !errors.Is(err, io.EOF) {
+		t.Errorf("expected exactly one JSON document, got a second value or unexpected error: %v", err)
+	}
+}
+
 // ── snapshot create / list / delete / verify / status ────────────────────
 
 // TestSnapshotCreateCommand checks that "snapshot create" sends name/description
@@ -490,6 +528,41 @@ func TestSnapshotCreateCommand_Wait(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "status=completed") {
 		t.Errorf("unexpected output: %s", buf.String())
+	}
+}
+
+// TestSnapshotCreateCommand_WaitJSONOutputIsSingleDocument checks that a
+// --wait'd stream with --output json prints exactly one JSON document, not
+// one per progress update: multiple concatenated top-level values would
+// not parse as a single document for a machine consumer piping into e.g. jq.
+func TestSnapshotCreateCommand_WaitJSONOutputIsSingleDocument(t *testing.T) {
+	fake, buf := setupDatabaseCommandTest(t)
+	globalFlags.Output = "json"
+	fake.createSnapshotResp = &databasev1alpha1.CreateSnapshotResponse{OperationId: "op1", SnapshotId: "snap1"}
+	fake.streamProgressions = []*databasev1alpha1.OperationProgress{
+		{OperationId: "op1", Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 10},
+		{OperationId: "op1", Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 50},
+		{OperationId: "op1", Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_COMPLETED, ProgressPercent: 100},
+	}
+
+	if err := mustExecute(t, []string{"snapshot", "create", "--wait"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dec := json.NewDecoder(buf)
+	var first map[string]any
+	if err := dec.Decode(&first); err != nil {
+		t.Fatalf("expected one valid JSON document, got decode error: %v (output: %s)", err, buf.String())
+	}
+	if status, _ := first["status"].(string); status != "completed" {
+		t.Errorf("status: got %v, want completed (output: %s)", first["status"], buf.String())
+	}
+	var second map[string]any
+	if err := dec.Decode(&second); !errors.Is(err, io.EOF) {
+		t.Errorf(
+			"expected exactly one JSON document (EOF after the first), got a second value or unexpected error: %v (output: %s)",
+			err, buf.String(),
+		)
 	}
 }
 

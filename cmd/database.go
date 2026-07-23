@@ -183,21 +183,25 @@ func newDatabaseStatusCmd() *cobra.Command {
 			}
 			defer func() { _ = stream.Close() }()
 
-			// Non-text formats must render as exactly one document: only
-			// the final update (whichever ends the loop, terminal or not)
-			// is printed for them, matching streamUntilTerminal's same
-			// restriction; text mode keeps live-tailing every update.
+			// Non-text formats must render as exactly one document: printing
+			// per update, the way text mode's live tailing does, would
+			// otherwise emit one top-level value per update. So for them,
+			// nothing is printed inside the loop; the final update is
+			// printed exactly once below, after the loop ends — whether
+			// that's because a terminal status was reached, --follow
+			// wasn't given, or (a case a naive "only print on the loop's
+			// own final check" gate would miss entirely) the server closed
+			// the stream early without ever reporting a terminal status.
 			textOutput := isTextOutput()
 			var last *databasev1alpha1.OperationProgress
 			for stream.Receive() {
 				last = stream.Msg().GetProgress()
-				final := !follow || isTerminalStatus(last.GetStatus())
-				if textOutput || final {
+				if textOutput {
 					if err := GetOutputPrinter().Print(operationStatusFromProto(last, "", nil)); err != nil {
 						return err
 					}
 				}
-				if final {
+				if !follow || isTerminalStatus(last.GetStatus()) {
 					break
 				}
 			}
@@ -209,6 +213,9 @@ func newDatabaseStatusCmd() *cobra.Command {
 					"operation stream for operation_id=%s closed with no progress reported",
 					opID,
 				)
+			}
+			if !textOutput {
+				return GetOutputPrinter().Print(operationStatusFromProto(last, "", nil))
 			}
 			return nil
 		},
@@ -1369,6 +1376,17 @@ func (r snapshotListResult) TableRows() [][]string {
 	return rows
 }
 
+// TableFooter makes snapshotListResult an output.TableFooter, so --output
+// table doesn't hide next_page_token the way plain TableWriter rows/header
+// alone would — without it, --limit's pagination would be unusable in
+// table mode (no way to discover the token needed for the next page).
+func (r snapshotListResult) TableFooter() string {
+	if r.NextPageToken == "" {
+		return ""
+	}
+	return fmt.Sprintf("next_page_token=%s", r.NextPageToken)
+}
+
 type snapshotDeletedResult struct {
 	SnapshotID string     `json:"snapshot_id" yaml:"snapshot_id"`
 	DeletedAt  *time.Time `json:"deleted_at,omitempty" yaml:"deleted_at,omitempty"`
@@ -1449,4 +1467,16 @@ func (r operationHistoryResult) TableRows() [][]string {
 		}
 	}
 	return rows
+}
+
+// TableFooter makes operationHistoryResult an output.TableFooter, so
+// --output table doesn't hide next_page_token the way plain TableWriter
+// rows/header alone would — without it, --limit's pagination would be
+// unusable in table mode (no way to discover the token needed for the
+// next page).
+func (r operationHistoryResult) TableFooter() string {
+	if r.NextPageToken == "" {
+		return ""
+	}
+	return fmt.Sprintf("next_page_token=%s", r.NextPageToken)
 }

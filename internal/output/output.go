@@ -122,11 +122,21 @@ func (p *Printer) Print(v any) error {
 	}
 }
 
+// TableFooter is an optional TableWriter extension for a result type that
+// carries one extra line of metadata not naturally a table column or row —
+// e.g. a pagination token. printTable renders it as a plain line after the
+// table body rather than a column, so it isn't tabwriter-aligned as if it
+// were another record. Return "" to render nothing.
+type TableFooter interface {
+	TableFooter() string
+}
+
 // printTable renders v as a tab-aligned table. If v implements TableWriter
 // its header/rows are used directly (one row per list element); otherwise
 // v is treated as a single record and rendered as a one-row table whose
 // columns are v's exported struct fields (name from its `json` tag, or the
-// Go field name if untagged).
+// Go field name if untagged). If v also implements TableFooter, that line
+// is appended after the table.
 func printTable(w io.Writer, v any) error {
 	var header []string
 	var rows [][]string
@@ -150,7 +160,17 @@ func printTable(w io.Writer, v any) error {
 			return err
 		}
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if tf, ok := v.(TableFooter); ok {
+		if footer := tf.TableFooter(); footer != "" {
+			if _, err := fmt.Fprintln(w, footer); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // tableCellSanitizer strips characters a cell value could contain (e.g. a
