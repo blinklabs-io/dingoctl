@@ -377,16 +377,19 @@ func TestStreamUntilTerminal_StopsAtTerminalStatus(t *testing.T) {
 	}
 }
 
-// TestStreamUntilTerminal_StreamEndsWithoutTerminalStatus checks that a stream
-// closing early returns the last progress seen (still RUNNING) rather than erroring.
+// TestStreamUntilTerminal_StreamEndsWithoutTerminalStatus checks that a
+// stream closing early (last status still RUNNING, not COMPLETED/FAILED/
+// CANCELLED) surfaces an error instead of being reported as success --
+// restore/truncate automation driven by --wait must not be told a
+// destructive operation finished when it never reached a terminal status.
 func TestStreamUntilTerminal_StreamEndsWithoutTerminalStatus(t *testing.T) {
 	client, _ := newFakeDatabaseServiceClient(t, []*databasev1alpha1.OperationProgress{
 		{OperationId: "op1", Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 30},
 	})
 
 	got, err := streamUntilTerminal(context.Background(), context.Background(), dingoclient.Config{}, client, "op1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for a stream that closed before reaching a terminal status")
 	}
 	if got.GetStatus() != databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING {
 		t.Errorf("status: got %v, want RUNNING", got.GetStatus())
@@ -410,7 +413,15 @@ func TestStreamUntilTerminal_EmptyStreamReturnsError(t *testing.T) {
 }
 
 // TestStreamUntilTerminal_RealInterruptRequestsCancel simulates a Ctrl+C
-// (parentCtx already cancelled) mid-operation and checks CancelOperation fires.
+// (parentCtx already cancelled) mid-operation and checks CancelOperation
+// fires. The fake server here closes its stream immediately after its one
+// canned RUNNING update regardless of context state (see the file-level
+// comment on TestShouldRequestCancelOnInterrupt_RealInterrupt), so the
+// stream context (ctx, deliberately left un-cancelled here to isolate the
+// cancel-request side effect from ctx.Err() handling) never itself reports
+// cancellation -- meaning this closes on a non-terminal status, same as any
+// other stream that ends before COMPLETED/FAILED/CANCELLED, and now
+// correctly surfaces that as an error too.
 func TestStreamUntilTerminal_RealInterruptRequestsCancel(t *testing.T) {
 	client, fake := newFakeDatabaseServiceClient(t, []*databasev1alpha1.OperationProgress{
 		{OperationId: "op1", Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 10},
@@ -419,8 +430,8 @@ func TestStreamUntilTerminal_RealInterruptRequestsCancel(t *testing.T) {
 	parentCtx, cancelParent := context.WithCancel(context.Background())
 	cancelParent()
 
-	if _, err := streamUntilTerminal(context.Background(), parentCtx, dingoclient.Config{}, client, "op1"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if _, err := streamUntilTerminal(context.Background(), parentCtx, dingoclient.Config{}, client, "op1"); err == nil {
+		t.Fatal("expected an error: stream closed before reaching a terminal status")
 	}
 
 	fake.mu.Lock()

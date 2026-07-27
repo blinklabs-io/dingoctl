@@ -458,13 +458,17 @@ func TestDatabaseStatusCommand_FollowStreamsUntilCompleted(t *testing.T) {
 	}
 }
 
-// TestDatabaseStatusCommand_FollowNonTextEOFBeforeTerminalStillPrints checks
-// that "status --follow --output json" still prints the last known update
-// as a single JSON document when the server closes the stream cleanly
-// without ever reporting a terminal status — a naive "only print when the
-// loop's own terminal/!follow check fires" gate would otherwise return
-// success having printed nothing at all.
-func TestDatabaseStatusCommand_FollowNonTextEOFBeforeTerminalStillPrints(t *testing.T) {
+// TestDatabaseStatusCommand_FollowNonTextEOFBeforeTerminalErrorsButStillPrints
+// checks that "status --follow --output json" still prints the last known
+// update as a single JSON document when the server closes the stream
+// cleanly without ever reporting a terminal status, but now also surfaces
+// a non-zero error for that case — --follow promises to keep streaming
+// until the operation finishes, so a clean EOF stuck on RUNNING/PENDING
+// must not be reported as success (automation would otherwise be told the
+// operation finished when it didn't). A naive "only print when the loop's
+// own terminal/!follow check fires" gate would print nothing at all, so
+// the last update must still be printed before returning that error.
+func TestDatabaseStatusCommand_FollowNonTextEOFBeforeTerminalErrorsButStillPrints(t *testing.T) {
 	fake, buf := setupDatabaseCommandTest(t)
 	globalFlags.Output = "json"
 	opID := "op-x"
@@ -477,8 +481,8 @@ func TestDatabaseStatusCommand_FollowNonTextEOFBeforeTerminalStillPrints(t *test
 		{OperationId: opID, Status: databasev1alpha1.OperationStatus_OPERATION_STATUS_RUNNING, ProgressPercent: 60},
 	}
 
-	if err := mustExecute(t, []string{"status", "--follow"}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := mustExecute(t, []string{"status", "--follow"}); err == nil {
+		t.Fatal("expected an error: --follow closed before reaching a terminal status")
 	}
 
 	dec := json.NewDecoder(buf)

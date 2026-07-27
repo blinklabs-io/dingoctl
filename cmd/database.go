@@ -215,7 +215,16 @@ func newDatabaseStatusCmd() *cobra.Command {
 				)
 			}
 			if !textOutput {
-				return GetOutputPrinter().Print(operationStatusFromProto(last, "", nil))
+				if err := GetOutputPrinter().Print(operationStatusFromProto(last, "", nil)); err != nil {
+					return err
+				}
+			}
+			if follow && !isTerminalStatus(last.GetStatus()) {
+				return fmt.Errorf(
+					"operation stream for operation_id=%s closed before reaching a terminal status (last status: %s)",
+					opID,
+					statusString(last.GetStatus()),
+				)
 			}
 			return nil
 		},
@@ -894,6 +903,20 @@ func streamUntilTerminal(
 		runErr = fmt.Errorf(
 			"operation stream for operation_id=%s closed with no progress reported",
 			opID,
+		)
+	case runErr == nil && !isTerminalStatus(last.GetStatus()):
+		// The stream closed cleanly (no transport error, not a
+		// timeout/interrupt race) after at least one update, but that
+		// update was never terminal. Without this, restore/truncate
+		// automation driven by --wait could be told a destructive
+		// operation completed when it never reached COMPLETED/FAILED/
+		// CANCELLED — printTerminalResult only rejects FAILED/CANCELLED,
+		// so a lingering RUNNING/PENDING would otherwise print as if it
+		// were a success.
+		runErr = fmt.Errorf(
+			"operation stream for operation_id=%s closed before reaching a terminal status (last status: %s)",
+			opID,
+			statusString(last.GetStatus()),
 		)
 	}
 	requestCancelIfInterrupted(parentCtx, svc, opID)
