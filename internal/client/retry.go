@@ -33,6 +33,31 @@ func transientCode(code connect.Code) bool {
 	return code == connect.CodeUnavailable || code == connect.CodeResourceExhausted
 }
 
+// noRetryKey is the context key WithNoRetry/noRetryRequested use to opt a
+// call out of retryInterceptor.
+type noRetryKey struct{}
+
+// WithNoRetry returns a context that opts the unary call made with it out of
+// the shared retry policy, making exactly one attempt.
+//
+// Use this for RPCs that start a new server-side operation and have no
+// idempotency key (e.g. CreateSnapshot, Restore, Truncate, VerifySnapshot):
+// CodeUnavailable does not always mean the server never received the
+// request — it can also fire after the server accepted and started the
+// operation but the response was lost in transit. Blindly retrying such a
+// call risks starting a second, duplicate operation. Calls that are
+// naturally idempotent or read-only (status/list/cancel RPCs) should keep
+// using the default retry behavior.
+func WithNoRetry(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRetryKey{}, true)
+}
+
+// noRetryRequested reports whether ctx was created via WithNoRetry.
+func noRetryRequested(ctx context.Context) bool {
+	v, _ := ctx.Value(noRetryKey{}).(bool)
+	return v
+}
+
 // retryPolicy encapsulates the attempt counter and exponential-backoff state.
 // It is shared between retryInterceptor (unary) and RunServerStream so both
 // use exactly the same logic and are maintained in one place.
@@ -76,9 +101,15 @@ func (rp *retryPolicy) advance(ctx context.Context) error {
 // retryInterceptor returns a ConnectRPC unary interceptor that re-attempts
 // failed calls using retryPolicy.  Context cancellation (e.g. --timeout)
 // stops the loop between attempts so the total budget is respected.
+//
+// A call made with a context from WithNoRetry skips the loop entirely and
+// makes exactly one attempt, regardless of cfg.
 func retryInterceptor(cfg Config) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			if noRetryRequested(ctx) {
+				return next(ctx, req)
+			}
 			rp := newRetryPolicy(cfg)
 			for {
 				resp, err := next(ctx, req)

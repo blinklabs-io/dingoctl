@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/dingoctl/internal/config"
+	"github.com/blinklabs-io/dingoctl/internal/output"
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 )
@@ -326,8 +327,11 @@ func setProfileField(p *config.Profile, key, value string) error {
 		}
 		p.Timeout = d
 	case "output":
-		if value != "text" && value != "json" && value != "yaml" {
-			return fmt.Errorf("invalid output format %q: must be text, json, or yaml", value)
+		if !output.Format(value).IsValid() {
+			return fmt.Errorf(
+				"invalid output format %q: must be one of text, json, yaml, table",
+				value,
+			)
 		}
 		p.Output = value
 	default:
