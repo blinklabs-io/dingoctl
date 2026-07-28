@@ -56,9 +56,10 @@ type fakeFullDatabaseService struct {
 	listAvailableSnapshotsErr  error
 	lastListAvailableSnapshots *databasev1alpha1.ListAvailableSnapshotsRequest
 
-	deleteSnapshotResp *databasev1alpha1.DeleteSnapshotResponse
-	deleteSnapshotErr  error
-	lastDeleteSnapshot *databasev1alpha1.DeleteSnapshotRequest
+	deleteSnapshotResp     *databasev1alpha1.DeleteSnapshotResponse
+	deleteSnapshotErr      error
+	lastDeleteSnapshot     *databasev1alpha1.DeleteSnapshotRequest
+	deleteSnapshotAttempts int
 
 	verifySnapshotResp *databasev1alpha1.VerifySnapshotResponse
 	verifySnapshotErr  error
@@ -147,6 +148,7 @@ func (f *fakeFullDatabaseService) DeleteSnapshot(
 ) (*connect.Response[databasev1alpha1.DeleteSnapshotResponse], error) {
 	f.mu.Lock()
 	f.lastDeleteSnapshot = req.Msg
+	f.deleteSnapshotAttempts++
 	f.mu.Unlock()
 	if f.deleteSnapshotErr != nil {
 		return nil, f.deleteSnapshotErr
@@ -683,6 +685,68 @@ func TestSnapshotDeleteCommand_RequiresConfirmation(t *testing.T) {
 	}
 	if fake.lastDeleteSnapshot != nil {
 		t.Error("DeleteSnapshot RPC must not be called without confirmation")
+	}
+}
+
+// TestSnapshotDeleteCommandDoesNotRetryOnTransientError guards against the
+// destructive DeleteSnapshot RPC being retried by the shared retry policy:
+// if the server actually deletes the snapshot but its response is lost to a
+// transient error (e.g. CodeUnavailable), an automatic retry would then see
+// NotFound and report a false failure even though the deletion succeeded.
+// Unlike setupDatabaseCommandTest's harness (which leaves MaxRetries at its
+// zero value, disabling retries entirely and so unable to distinguish
+// "correctly opted out" from "retries were never possible here anyway"),
+// this test builds its own client with retries genuinely enabled (short
+// backoff so a regression doesn't slow the suite down) — a dropped
+// client.WithNoRetry call would show up here as more than one attempt.
+func TestSnapshotDeleteCommandDoesNotRetryOnTransientError(t *testing.T) {
+	fake := &fakeFullDatabaseService{
+		deleteSnapshotErr: connect.NewError(connect.CodeUnavailable, errors.New("transient")),
+	}
+	path, handler := databasev1alpha1connect.NewDatabaseServiceHandler(fake)
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+	srv := httptest.NewTLSServer(mux)
+	t.Cleanup(srv.Close)
+
+	addr := strings.TrimPrefix(srv.URL, "https://")
+	c, err := client.New(client.Config{
+		Address:        addr,
+		Insecure:       true,
+		Timeout:        5 * time.Second,
+		MaxRetries:     3,
+		RetryBaseDelay: time.Millisecond,
+		RetryMaxDelay:  5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("construct fake session client: %v", err)
+	}
+
+	sessionOnce.Do(func() {})
+	sessionClient = c
+	sessionErr = nil
+	t.Cleanup(func() {
+		sessionOnce = sync.Once{}
+		sessionClient = nil
+		sessionErr = nil
+	})
+
+	prevGlobalFlags := globalFlags
+	globalFlags = GlobalFlags{Output: "text"}
+	t.Cleanup(func() { globalFlags = prevGlobalFlags })
+
+	var buf bytes.Buffer
+	outputWriterForTest = &buf
+	t.Cleanup(func() { outputWriterForTest = nil })
+
+	if err := mustExecute(t, []string{"snapshot", "delete", "snap1", "--no-confirm"}); err == nil {
+		t.Fatal("expected the transient error to surface")
+	}
+	if fake.deleteSnapshotAttempts != 1 {
+		t.Fatalf(
+			"expected exactly 1 DeleteSnapshot attempt under client.WithNoRetry, got %d",
+			fake.deleteSnapshotAttempts,
+		)
 	}
 }
 

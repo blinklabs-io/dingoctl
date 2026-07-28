@@ -427,8 +427,13 @@ func newSnapshotDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// DeleteSnapshot is not idempotent from the client's point of
+			// view: if the server deletes the snapshot but the response is
+			// lost, an automatic retry would receive NotFound and report
+			// failure even though the deletion succeeded. See CreateSnapshot's
+			// comment above / client.WithNoRetry.
 			resp, err := c.DatabaseService().DeleteSnapshot(
-				cmd.Context(),
+				client.WithNoRetry(cmd.Context()),
 				connect.NewRequest(&databasev1alpha1.DeleteSnapshotRequest{SnapshotId: snapshotID}),
 			)
 			if err != nil {
