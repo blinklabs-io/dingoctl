@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/blinklabs-io/dingoctl/internal/output"
 	"github.com/spf13/viper"
 	"go.yaml.in/yaml/v3"
 )
@@ -160,18 +161,11 @@ func (c *Config) Validate() error {
 // Validate checks that a profile has valid settings.
 func (p *Profile) Validate() error {
 	// Validate output format if specified
-	if p.Output != "" {
-		validFormats := []string{"text", "json", "yaml", "table"}
-		valid := false
-		for _, format := range validFormats {
-			if p.Output == format {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("invalid output format %q: must be one of text, json, yaml, table", p.Output)
-		}
+	if p.Output != "" && !output.Format(p.Output).IsValid() {
+		return fmt.Errorf(
+			"invalid output format %q: must be one of text, json, yaml, table",
+			p.Output,
+		)
 	}
 
 	// Validate that client cert and key are both present or both absent

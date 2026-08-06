@@ -16,9 +16,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/blinklabs-io/dingoctl/internal/config"
@@ -64,9 +68,17 @@ node with --connect (or $DINGOCTL_CONNECT) and then run any sub-command.`,
 	PersistentPreRunE: persistentPreRun,
 }
 
-// Execute is the single entry-point called by main.
+// Execute is the single entry-point called by main. It runs the command
+// tree against a context that's cancelled on SIGINT/SIGTERM, so a
+// sub-command's RunE (via cmd.Context()) sees a real cancellation signal
+// on Ctrl+C rather than the process just dying mid-request — this is what
+// lets a --wait'd long-running database operation notice the interrupt
+// and ask the server to cancel it (see database.go's streamUntilTerminal)
+// instead of leaving it orphaned and still running.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		errs.Die(err)
 	}
 }
@@ -168,6 +180,7 @@ func init() {
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newCompletionCmd())
 	rootCmd.AddCommand(newConfigCmd())
+	rootCmd.AddCommand(newDatabaseCmd())
 }
 
 // initConfig sets up the config file search paths via Viper.
@@ -293,10 +306,21 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// outputWriterForTest, when non-nil, replaces os.Stdout as GetOutputPrinter's
+// destination. It exists solely so command-level tests can capture rendered
+// output without redirecting the process's real stdout; production code
+// never sets it, so GetOutputPrinter always writes to os.Stdout outside of
+// tests.
+var outputWriterForTest io.Writer
+
 // GetOutputPrinter constructs a Printer from the current global flags.
 func GetOutputPrinter() *output.Printer {
+	var w io.Writer = os.Stdout
+	if outputWriterForTest != nil {
+		w = outputWriterForTest
+	}
 	return output.New(
-		os.Stdout,
+		w,
 		output.Format(globalFlags.Output),
 		globalFlags.Quiet,
 	)

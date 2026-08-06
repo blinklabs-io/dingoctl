@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/dingoctl/internal/config"
+	"github.com/blinklabs-io/dingoctl/internal/output"
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 )
@@ -322,11 +323,21 @@ func getProfileField(p *config.Profile, key string) (string, error) {
 	case "client_key", "client-key":
 		return p.ClientKey, nil
 	case "timeout":
-		return p.Timeout.String(), nil
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("invalid timeout %q: %w", value, err)
+		}
+		p.Timeout = d
 	case "output":
-		return p.Output, nil
+		if !output.Format(value).IsValid() {
+			return fmt.Errorf(
+				"invalid output format %q: must be one of text, json, yaml, table",
+				value,
+			)
+		}
+		p.Output = value
 	default:
-		return "", fmt.Errorf("unknown config key %q", key)
+		return fmt.Errorf("unknown config key %q", key)
 	}
 }
 
@@ -352,8 +363,11 @@ func setProfileField(p *config.Profile, key, value string) error {
 		}
 		p.Timeout = d
 	case "output":
-		if value != "text" && value != "json" && value != "yaml" && value != "table" {
-			return fmt.Errorf("invalid output format %q: must be text, json, yaml, or table", value)
+		if !output.Format(value).IsValid() {
+			return fmt.Errorf(
+				"invalid output format %q: must be one of text, json, yaml, table",
+				value,
+			)
 		}
 		p.Output = value
 	default:

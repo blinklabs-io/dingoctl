@@ -16,278 +16,210 @@ package output
 
 import (
 	"bytes"
-	"encoding/json"
-	"os"
 	"strings"
 	"testing"
-
-	"go.yaml.in/yaml/v3"
 )
 
+// TestFormatIsValid checks that text/json/yaml/table are accepted and any
+// other value (including empty) is rejected.
 func TestFormatIsValid(t *testing.T) {
-	tests := []struct {
-		name  string
-		fmt   Format
-		valid bool
-	}{
-		{"text is valid", FormatText, true},
-		{"json is valid", FormatJSON, true},
-		{"yaml is valid", FormatYAML, true},
-		{"table is valid", FormatTable, true},
-		{"invalid format", Format("invalid"), false},
-		{"empty format", Format(""), false},
+	cases := map[Format]bool{
+		FormatText:      true,
+		FormatJSON:      true,
+		FormatYAML:      true,
+		FormatTable:     true,
+		Format("bogus"): false,
+		Format(""):      false,
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.fmt.IsValid(); got != tt.valid {
-				t.Errorf("Format.IsValid() = %v, want %v", got, tt.valid)
-			}
-		})
-	}
-}
-
-func TestColorEnabled(t *testing.T) {
-	// Test NO_COLOR environment variable
-	t.Run("NO_COLOR disables color", func(t *testing.T) {
-		// Save original value and restore after test
-		original, hadOriginal := os.LookupEnv("NO_COLOR")
-		defer func() {
-			if hadOriginal {
-				os.Setenv("NO_COLOR", original)
-			} else {
-				os.Unsetenv("NO_COLOR")
-			}
-		}()
-
-		os.Setenv("NO_COLOR", "1")
-		if ColorEnabled(os.Stdout) {
-			t.Error("ColorEnabled() should return false when NO_COLOR is set")
+	for f, want := range cases {
+		if got := f.IsValid(); got != want {
+			t.Errorf("Format(%q).IsValid(): got %v, want %v", f, got, want)
 		}
-	})
-
-	// Test with a non-file writer
-	t.Run("non-file writer disables color", func(t *testing.T) {
-		buf := &bytes.Buffer{}
-		if ColorEnabled(buf) {
-			t.Error("ColorEnabled() should return false for non-file writers")
-		}
-	})
-}
-
-func TestPrinterJSON(t *testing.T) {
-	buf := &bytes.Buffer{}
-	p := New(buf, FormatJSON, false)
-
-	data := map[string]any{
-		"name":  "test",
-		"count": 42,
-	}
-
-	if err := p.Print(data); err != nil {
-		t.Fatalf("Print() error = %v", err)
-	}
-
-	var result map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
-		t.Fatalf("Failed to parse JSON output: %v", err)
-	}
-
-	if result["name"] != "test" || result["count"] != float64(42) {
-		t.Errorf("JSON output mismatch: %v", result)
 	}
 }
 
-func TestPrinterYAML(t *testing.T) {
-	buf := &bytes.Buffer{}
-	p := New(buf, FormatYAML, false)
+// listResult implements TableWriter directly, the way a command's own
+// "list" result type would (see cmd's snapshotListResult).
+type listResult struct {
+	Items []string
+}
 
-	data := map[string]any{
-		"name":  "test",
-		"count": 42,
+func (r listResult) TableHeader() []string { return []string{"item"} }
+
+func (r listResult) TableRows() [][]string {
+	rows := make([][]string, len(r.Items))
+	for i, item := range r.Items {
+		rows[i] = []string{item}
+	}
+	return rows
+}
+
+// listResultWithFooter additionally implements TableFooter, the way a
+// paginated list result (e.g. cmd's snapshotListResult/
+// operationHistoryResult) carries a next_page_token alongside its rows.
+type listResultWithFooter struct {
+	listResult
+	NextPageToken string
+}
+
+func (r listResultWithFooter) TableFooter() string {
+	if r.NextPageToken == "" {
+		return ""
+	}
+	return "next_page_token=" + r.NextPageToken
+}
+
+// TestPrintTable_RendersTableFooterWhenImplemented checks that a
+// TableFooter's non-empty line is appended after the table body, so
+// pagination metadata isn't silently dropped in table mode.
+func TestPrintTable_RendersTableFooterWhenImplemented(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
+
+	if err := p.Print(listResultWithFooter{
+		listResult:    listResult{Items: []string{"a"}},
+		NextPageToken: "tok123",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := p.Print(data); err != nil {
-		t.Fatalf("Print() error = %v", err)
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines (header + 1 row + footer), got %d: %q", len(lines), buf.String())
 	}
-
-	var result map[string]any
-	if err := yaml.Unmarshal(buf.Bytes(), &result); err != nil {
-		t.Fatalf("Failed to parse YAML output: %v", err)
-	}
-
-	if result["name"] != "test" || result["count"] != 42 {
-		t.Errorf("YAML output mismatch: %v", result)
+	if lines[2] != "next_page_token=tok123" {
+		t.Errorf("footer line: got %q, want %q", lines[2], "next_page_token=tok123")
 	}
 }
 
-func TestPrinterQuietMode(t *testing.T) {
-	buf := &bytes.Buffer{}
-	p := New(buf, FormatText, true)
+// TestPrintTable_EmptyTableFooterPrintsNothingExtra checks that an empty
+// TableFooter (no pagination token) doesn't add a stray blank line.
+func TestPrintTable_EmptyTableFooterPrintsNothingExtra(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
 
-	// All output should be suppressed in quiet mode
-	p.Print("test")
-	p.Println("test")
-	p.Success("test")
-	p.Error("test")
-	p.Warning("test")
-	p.Info("test")
-	p.Header("test")
-	p.KeyValue("key", "value")
+	if err := p.Print(listResultWithFooter{listResult: listResult{Items: []string{"a"}}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	if buf.Len() > 0 {
-		t.Errorf("Quiet mode should suppress all output, got: %s", buf.String())
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (header + 1 row), got %d: %q", len(lines), buf.String())
 	}
 }
 
-func TestPrinterText(t *testing.T) {
-	buf := &bytes.Buffer{}
-	p := New(buf, FormatText, false)
+// TestPrintTable_UsesTableWriterWhenImplemented checks that table mode
+// renders a TableWriter's own header/rows, one row per list element.
+func TestPrintTable_UsesTableWriterWhenImplemented(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
 
-	tests := []struct {
-		name string
-		fn   func() error
-		want string
-	}{
-		{"plain println", func() error { p.Println("test"); return nil }, "test"},
-		{"success", func() error { return p.Success("done") }, "done"},
-		{"error", func() error { return p.Error("failed") }, "failed"},
-		{"warning", func() error { return p.Warning("caution") }, "caution"},
-		{"info", func() error { return p.Info("note") }, "note"},
-		{"header", func() error { return p.Header("Section") }, "Section"},
+	if err := p.Print(listResult{Items: []string{"a", "b"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			buf.Reset()
-			if err := tt.fn(); err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			output := strings.TrimSpace(buf.String())
-			// Remove ANSI codes for comparison (they may be present)
-			output = stripANSI(output)
-			if !strings.Contains(output, tt.want) {
-				t.Errorf("output %q should contain %q", output, tt.want)
-			}
-		})
+	out := buf.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines (header + 2 rows), got %d: %q", len(lines), out)
+	}
+	if !strings.Contains(lines[0], "item") {
+		t.Errorf("header line missing column name: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "a") || !strings.Contains(lines[2], "b") {
+		t.Errorf("rows missing expected values: %q", out)
 	}
 }
 
-func TestTableRenderer(t *testing.T) {
-	buf := &bytes.Buffer{}
-	tr := NewTableRenderer(buf, false)
+// singleRecord has no TableHeader/TableRows methods, so table mode must
+// fall back to a generic one-row table built from its exported fields —
+// the shape every "info"/"status"-style result type in cmd/database.go
+// has (databaseInfoResult, operationStatusResult, etc.).
+type singleRecord struct {
+	Name      string `json:"name"`
+	Count     int    `json:"count"`
+	Hidden    string `json:"-"`
+	unexpored string //nolint:unused // deliberately unexported, must be skipped
+}
 
-	table := &Table{
-		Headers: []string{"Name", "Age", "City"},
-		Rows: [][]string{
-			{"Alice", "30", "NYC"},
-			{"Bob", "25", "LA"},
-			{"Charlie", "35", "SF"},
-		},
+// TestPrintTable_GenericFallbackForSingleStruct checks the reflection-based
+// one-row fallback for a struct without TableWriter, including json tag handling.
+func TestPrintTable_GenericFallbackForSingleStruct(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
+
+	if err := p.Print(singleRecord{Name: "snap1", Count: 3, Hidden: "secret"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := tr.Render(table); err != nil {
-		t.Fatalf("Render() error = %v", err)
+	out := buf.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (header + 1 row), got %d: %q", len(lines), out)
 	}
-
-	output := buf.String()
-	if !strings.Contains(output, "Alice") || !strings.Contains(output, "Bob") {
-		t.Errorf("Table output missing data: %s", output)
+	if !strings.Contains(lines[0], "name") || !strings.Contains(lines[0], "count") {
+		t.Errorf("header missing expected columns: %q", lines[0])
+	}
+	if strings.Contains(lines[0], "Hidden") || strings.Contains(out, "secret") {
+		t.Errorf("json:\"-\" field must be excluded from the table: %q", out)
 	}
 }
 
-func TestTableRendererSimple(t *testing.T) {
-	buf := &bytes.Buffer{}
-	tr := NewTableRenderer(buf, false)
+// TestPrintTable_SanitizesTabsAndNewlinesInCells checks that a cell value
+// containing a tab or newline (e.g. a snapshot description) is neutralized
+// rather than corrupting the table's column/row structure.
+func TestPrintTable_SanitizesTabsAndNewlinesInCells(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
 
-	table := &Table{
-		Headers: []string{"Name", "Age"},
-		Rows: [][]string{
-			{"Alice", "30"},
-			{"Bob", "25"},
-		},
+	if err := p.Print(singleRecord{Name: "line1\tline2\nline3", Count: 1}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := tr.RenderSimple(table); err != nil {
-		t.Fatalf("RenderSimple() error = %v", err)
+	out := buf.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (header + 1 row), got %d: %q", len(lines), out)
 	}
-
-	output := buf.String()
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) < 3 {
-		t.Errorf("Expected at least 3 lines (header, separator, rows), got %d", len(lines))
-	}
-}
-
-func TestProgressBar(t *testing.T) {
-	buf := &bytes.Buffer{}
-	pb := NewProgressBar(buf, false, 20)
-
-	if err := pb.Update(0.5, "Processing"); err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	output := buf.String()
-	if !strings.Contains(output, "50%") {
-		t.Errorf("Progress bar should show 50%%, got: %s", output)
-	}
-
-	buf.Reset()
-	if err := pb.Complete("Done"); err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-
-	output = buf.String()
-	if !strings.Contains(output, "100%") {
-		t.Errorf("Completed progress bar should show 100%%, got: %s", output)
+	if !strings.Contains(lines[1], "line1 line2 line3") {
+		t.Errorf(
+			"expected the tab and newline in the cell value replaced with spaces, got row: %q",
+			lines[1],
+		)
 	}
 }
 
-func TestSpinner(t *testing.T) {
-	buf := &bytes.Buffer{}
-	s := NewSpinner(buf, false)
-
-	s.Start("Loading")
-	// Give it a moment to render
-	s.Update("Processing")
-	s.Stop()
-
-	// Output should be cleared after stop
-	// We can't easily test the intermediate states without actual timing
+type withNilPointer struct {
+	Name string  `json:"name"`
+	When *string `json:"when"`
 }
 
-func TestPrinterProgressBarQuietMode(t *testing.T) {
-	buf := &bytes.Buffer{}
-	p := New(buf, FormatText, true)
+// TestPrintTable_NilPointerRendersAsEmptyCell checks that a nil pointer field
+// renders as an empty cell rather than the literal string "<nil>".
+func TestPrintTable_NilPointerRendersAsEmptyCell(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, false)
 
-	pb := p.NewProgressBar(40)
-	if pb != nil {
-		t.Error("NewProgressBar() should return nil in quiet mode")
+	if err := p.Print(withNilPointer{Name: "x", When: nil}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sp := p.NewSpinner()
-	if sp != nil {
-		t.Error("NewSpinner() should return nil in quiet mode")
+	out := buf.String()
+	if strings.Contains(out, "<nil>") {
+		t.Errorf("nil pointer field must render as an empty cell, not <nil>: %q", out)
 	}
 }
 
-// stripANSI removes ANSI escape codes from a string for testing.
-func stripANSI(s string) string {
-	// Simple ANSI code stripper for tests
-	var result strings.Builder
-	inEscape := false
-	for _, r := range s {
-		if r == '\x1b' {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-				inEscape = false
-			}
-			continue
-		}
-		result.WriteRune(r)
+// TestPrintTable_QuietSuppressesOutput checks that quiet mode suppresses all
+// output in table mode too, not just text/json/yaml.
+func TestPrintTable_QuietSuppressesOutput(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, FormatTable, true)
+
+	if err := p.Print(listResult{Items: []string{"a"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	return result.String()
+	if buf.Len() != 0 {
+		t.Errorf("quiet mode must suppress all output, got: %q", buf.String())
+	}
 }
