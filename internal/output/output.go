@@ -86,8 +86,8 @@ func New(w io.Writer, format Format, quiet bool) *Printer {
 
 // Print encodes v according to the printer's format and writes it to w.
 // In quiet mode nothing is written.
-// For table format, Print serializes v as JSON since automatic table
-// conversion requires explicit structure via the Table() renderer.
+// For table format, if v is a *Table it will be rendered as a table,
+// otherwise it falls back to text format.
 func (p *Printer) Print(v any) error {
 	if p.quiet {
 		return nil
@@ -105,12 +105,13 @@ func (p *Printer) Print(v any) error {
 		}
 		return enc.Close()
 	case FormatTable:
-		// For table format, serialize as JSON when Print() is called directly.
-		// Commands that want true table rendering should use printer.Table()
-		// with an explicit Table struct.
-		enc := json.NewEncoder(p.w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(v)
+		// If the value is a Table struct, render it as a table
+		if tbl, ok := v.(*Table); ok {
+			return p.table.Render(tbl)
+		}
+		// Otherwise fall back to text representation
+		_, err := fmt.Fprintln(p.w, v)
+		return err
 	case FormatText:
 		_, err := fmt.Fprintln(p.w, v)
 		return err

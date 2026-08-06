@@ -185,15 +185,19 @@ func (s *Spinner) Start(msg string) {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	// Recreate context for restart capability
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+	// Recreate context and ticker for restart capability
+	// Create them while synchronized to avoid race with run() goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	ticker := time.NewTicker(100 * time.Millisecond)
+	s.ctx = ctx
+	s.cancel = cancel
+	s.ticker = ticker
 	s.message = msg
 	s.done = false
 	s.current = 0
 	s.mu.Unlock()
 
-	s.ticker = time.NewTicker(100 * time.Millisecond)
-	go s.run()
+	go s.run(ctx, ticker)
 }
 
 // Update changes the spinner message without stopping it.
@@ -222,12 +226,13 @@ func (s *Spinner) Stop() {
 }
 
 // run is the spinner animation loop.
-func (s *Spinner) run() {
+// Takes explicit context and ticker to avoid race conditions on restart.
+func (s *Spinner) run(ctx context.Context, ticker *time.Ticker) {
 	for {
 		select {
-		case <-s.ctx.Done():
+		case <-ctx.Done():
 			return
-		case <-s.ticker.C:
+		case <-ticker.C:
 			s.mu.Lock()
 			if s.done {
 				s.mu.Unlock()

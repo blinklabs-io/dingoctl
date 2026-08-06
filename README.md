@@ -17,7 +17,7 @@ Or build from source:
 ```bash
 git clone https://github.com/blinklabs-io/dingoctl.git
 cd dingoctl
-make build
+go build
 ```
 
 ## Quick Start
