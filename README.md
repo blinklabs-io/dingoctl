@@ -23,13 +23,14 @@ localhost:9091`.
   the board, not just for destructive commands.
 - `--client-cert`/`--client-key`: present a client certificate for mutual
   TLS. This is **additionally required** against a node that has
-  `barkClientCaFilePath` configured — such a node authenticates destructive
-  `dingoctl database` operations (`restore`, `truncate`, `delete-snapshot`,
-  `cancel`, etc.) by requiring a client certificate signed by that CA;
-  without one, those commands fail with an unauthenticated error (read-only
-  commands like `dingoctl database info` still work with just `--tls`, no
-  client cert needed). Ask whoever operates the node for a certificate
-  signed by its configured CA.
+  `barkClientCaFilePath` configured, for `snapshot create`, `snapshot
+  delete`, `snapshot verify`, `restore`, `truncate`, and `cancel`
+  specifically — not just the destructive `restore`/`truncate` operations,
+  since the server also authenticates resource-consuming ones like
+  creating or verifying a snapshot. Without a client cert, those commands
+  fail with an unauthenticated error (read-only commands like `dingoctl
+  database info` still work with just `--tls`, no client cert needed). Ask
+  whoever operates the node for a certificate signed by its configured CA.
 
 All of the above can also be set per-profile in the config file; see
 `dingoctl config --help`.
