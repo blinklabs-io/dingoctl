@@ -47,7 +47,13 @@ DatabaseService: capture snapshots, restore from one, or truncate the
 chain to an earlier point (CIP-0135 disaster recovery).
 
 Restore and truncate are destructive and irreversible on the target node;
-both prompt for confirmation unless --no-confirm is given.`,
+both prompt for confirmation unless --no-confirm is given.
+
+Destructive subcommands (snapshot create/delete, restore, truncate,
+cancel) require --client-cert/--client-key against a node that has its
+database lifecycle service's client CA configured; --tls is required for
+every subcommand, including read-only ones, against such a node. See
+--help on the global flags or the README for details.`,
 	}
 
 	cmd.AddCommand(newDatabaseInfoCmd())
