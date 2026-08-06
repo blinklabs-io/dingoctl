@@ -323,21 +323,11 @@ func getProfileField(p *config.Profile, key string) (string, error) {
 	case "client_key", "client-key":
 		return p.ClientKey, nil
 	case "timeout":
-		d, err := time.ParseDuration(value)
-		if err != nil {
-			return fmt.Errorf("invalid timeout %q: %w", value, err)
-		}
-		p.Timeout = d
+		return p.Timeout.String(), nil
 	case "output":
-		if !output.Format(value).IsValid() {
-			return fmt.Errorf(
-				"invalid output format %q: must be one of text, json, yaml, table",
-				value,
-			)
-		}
-		p.Output = value
+		return p.Output, nil
 	default:
-		return fmt.Errorf("unknown config key %q", key)
+		return "", fmt.Errorf("unknown config key %q", key)
 	}
 }
 
