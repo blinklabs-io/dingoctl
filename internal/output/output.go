@@ -84,20 +84,27 @@ type Printer struct {
 	format Format
 	quiet  bool
 	color  bool
+	text   *TextRenderer
+	table  *TableRenderer
 }
 
 // New creates a Printer that writes to w.
 func New(w io.Writer, format Format, quiet bool) *Printer {
+	color := ColorEnabled(w)
 	return &Printer{
 		w:      w,
 		format: format,
 		quiet:  quiet,
-		color:  ColorEnabled(w),
+		color:  color,
+		text:   NewTextRenderer(w, color),
+		table:  NewTableRenderer(w, color),
 	}
 }
 
 // Print encodes v according to the printer's format and writes it to w.
 // In quiet mode nothing is written.
+// For table format, if v is a *Table it will be rendered as a table,
+// otherwise it falls back to text format.
 func (p *Printer) Print(v any) error {
 	if p.quiet {
 		return nil
@@ -244,4 +251,93 @@ func (p *Printer) Println(msg string) {
 // ColorEnabled returns whether this printer will use ANSI colors.
 func (p *Printer) ColorEnabled() bool {
 	return p.color
+}
+
+// Format returns the current output format.
+func (p *Printer) Format() Format {
+	return p.format
+}
+
+// Text returns the text renderer for styled output.
+// Returns nil for JSON/YAML formats or when quiet mode is enabled.
+func (p *Printer) Text() *TextRenderer {
+	if p.quiet || (p.format != FormatText && p.format != FormatTable) {
+		return nil
+	}
+	return p.text
+}
+
+// Table returns the table renderer for tabular output.
+// Returns nil for JSON/YAML formats or when quiet mode is enabled.
+func (p *Printer) Table() *TableRenderer {
+	if p.quiet || (p.format != FormatText && p.format != FormatTable) {
+		return nil
+	}
+	return p.table
+}
+
+// NewProgressBar creates a progress bar for this printer.
+// Returns nil if quiet mode is enabled or format is JSON/YAML.
+func (p *Printer) NewProgressBar(width int) *ProgressBar {
+	if p.quiet || (p.format != FormatText && p.format != FormatTable) {
+		return nil
+	}
+	return NewProgressBar(p.w, p.color, width)
+}
+
+// NewSpinner creates a spinner for this printer.
+// Returns nil if quiet mode is enabled or format is JSON/YAML.
+func (p *Printer) NewSpinner() *Spinner {
+	if p.quiet || (p.format != FormatText && p.format != FormatTable) {
+		return nil
+	}
+	return NewSpinner(p.w, p.color)
+}
+
+// Success writes a success message (text format only).
+func (p *Printer) Success(msg string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Success(msg)
+}
+
+// Error writes an error message (text format only).
+func (p *Printer) Error(msg string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Error(msg)
+}
+
+// Warning writes a warning message (text format only).
+func (p *Printer) Warning(msg string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Warning(msg)
+}
+
+// Info writes an informational message (text format only).
+func (p *Printer) Info(msg string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Info(msg)
+}
+
+// Header writes a section header (text format only).
+func (p *Printer) Header(text string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.Header(text)
+}
+
+// KeyValue writes a key-value pair (text format only).
+func (p *Printer) KeyValue(key, value string) error {
+	if p.quiet || p.format != FormatText {
+		return nil
+	}
+	return p.text.KeyValue(key, value)
 }

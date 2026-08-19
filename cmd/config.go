@@ -65,6 +65,7 @@ Examples:
   dingoctl config get output`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -85,8 +86,7 @@ Examples:
 				return err
 			}
 
-			fmt.Println(value)
-			return nil
+			return printer.Print(value)
 		},
 	}
 
@@ -113,6 +113,7 @@ Examples:
   dingoctl config set timeout 60s`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -145,14 +146,20 @@ Examples:
 				return err
 			}
 
-			fmt.Printf("Set %s = %s in profile %q\n", key, value, profileName)
-			return nil
+			return printer.Print(fmt.Sprintf("Set %s = %s in profile %q", key, value, profileName))
 		},
 	}
 
 	cmd.Flags().StringVar(&profileName, "profile", "", "profile name (default: current profile)")
 
 	return cmd
+}
+
+// profileInfo holds information about a single profile for structured output.
+type profileInfo struct {
+	Name    string          `json:"name" yaml:"name"`
+	Current bool            `json:"current" yaml:"current"`
+	Profile *config.Profile `json:"profile,omitempty" yaml:"profile,omitempty"`
 }
 
 // newConfigListCmd creates the 'config list' subcommand.
@@ -166,19 +173,52 @@ func newConfigListCmd() *cobra.Command {
 
 Use --verbose to show all settings for each profile.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 
 			if len(cfg.Profiles) == 0 {
-				fmt.Println("No profiles configured")
-				return nil
+				return printer.Print("No profiles configured")
 			}
 
 			names := cfg.ListProfiles()
 			sort.Strings(names)
 
+			// For structured output formats, build profile list
+			if printer.Format() == "json" || printer.Format() == "yaml" || printer.Format() == "table" {
+				var profiles []profileInfo
+				for _, name := range names {
+					profile := cfg.GetProfile(name)
+					if profile == nil {
+						continue
+					}
+					info := profileInfo{
+						Name:    name,
+						Current: name == cfg.CurrentProfile,
+						Profile: profile,
+					}
+					profiles = append(profiles, info)
+				}
+
+				// For table format, wrap in TableWriter
+				if printer.Format() == "table" {
+					return printer.Print(profileListResult{
+						profiles: profiles,
+						verbose:  verbose,
+					})
+				}
+				// For JSON/YAML in non-verbose mode, omit Profile details
+				if !verbose {
+					for i := range profiles {
+						profiles[i].Profile = nil
+					}
+				}
+				return printer.Print(profiles)
+			}
+
+			// For text output, use the original format
 			for _, name := range names {
 				profile := cfg.GetProfile(name)
 				if profile == nil {
@@ -191,15 +231,15 @@ Use --verbose to show all settings for each profile.`,
 				}
 
 				if verbose {
-					fmt.Printf("%s %s:\n", marker, name)
+					printer.Println(fmt.Sprintf("%s %s:", marker, name))
 					data, _ := yaml.Marshal(profile)
 					for _, line := range strings.Split(string(data), "\n") {
 						if line != "" {
-							fmt.Printf("    %s\n", line)
+							printer.Println(fmt.Sprintf("    %s", line))
 						}
 					}
 				} else {
-					fmt.Printf("%s %s\n", marker, name)
+					printer.Println(fmt.Sprintf("%s %s", marker, name))
 				}
 			}
 
@@ -222,6 +262,7 @@ func newConfigUseCmd() *cobra.Command {
 The current profile is used by default when no --profile flag is provided.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -238,8 +279,7 @@ The current profile is used by default when no --profile flag is provided.`,
 				return err
 			}
 
-			fmt.Printf("Switched to profile %q\n", profileName)
-			return nil
+			return printer.Print(fmt.Sprintf("Switched to profile %q", profileName))
 		},
 	}
 
@@ -253,13 +293,13 @@ func newConfigCurrentCmd() *cobra.Command {
 		Short: "Show the current profile",
 		Long:  `Show the name of the current profile.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := GetOutputPrinter()
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 
-			fmt.Println(cfg.CurrentProfile)
-			return nil
+			return printer.Print(cfg.CurrentProfile)
 		},
 	}
 
@@ -273,8 +313,8 @@ func newConfigPathCmd() *cobra.Command {
 		Short: "Show the configuration file path",
 		Long:  `Show the path to the configuration file.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println(config.GetConfigPath())
-			return nil
+			printer := GetOutputPrinter()
+			return printer.Print(config.GetConfigPath())
 		},
 	}
 
@@ -338,4 +378,53 @@ func setProfileField(p *config.Profile, key, value string) error {
 		return fmt.Errorf("unknown config key %q", key)
 	}
 	return nil
+}
+
+// profileListResult wraps a list of profiles for table output.
+type profileListResult struct {
+	profiles []profileInfo
+	verbose  bool
+}
+
+var _ output.TableWriter = profileListResult{}
+
+// TableHeader returns the column names for the profile list table.
+func (r profileListResult) TableHeader() []string {
+	if r.verbose {
+		return []string{"current", "name", "connect", "tls", "insecure", "ca_cert", "client_cert", "client_key", "timeout", "output"}
+	}
+	return []string{"current", "name", "connect"}
+}
+
+// TableRows returns one row per profile.
+func (r profileListResult) TableRows() [][]string {
+	rows := make([][]string, len(r.profiles))
+	for i, info := range r.profiles {
+		marker := ""
+		if info.Current {
+			marker = "*"
+		}
+
+		if r.verbose {
+			rows[i] = []string{
+				marker,
+				info.Name,
+				info.Profile.Connect,
+				fmt.Sprintf("%t", info.Profile.TLS),
+				fmt.Sprintf("%t", info.Profile.Insecure),
+				info.Profile.CACert,
+				info.Profile.ClientCert,
+				info.Profile.ClientKey,
+				info.Profile.Timeout.String(),
+				info.Profile.Output,
+			}
+		} else {
+			rows[i] = []string{
+				marker,
+				info.Name,
+				info.Profile.Connect,
+			}
+		}
+	}
+	return rows
 }
