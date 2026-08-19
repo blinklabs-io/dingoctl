@@ -391,7 +391,7 @@ var _ output.TableWriter = profileListResult{}
 // TableHeader returns the column names for the profile list table.
 func (r profileListResult) TableHeader() []string {
 	if r.verbose {
-		return []string{"current", "name", "connect", "tls", "timeout", "output"}
+		return []string{"current", "name", "connect", "tls", "insecure", "ca_cert", "client_cert", "client_key", "timeout", "output"}
 	}
 	return []string{"current", "name", "connect"}
 }
@@ -411,6 +411,10 @@ func (r profileListResult) TableRows() [][]string {
 				info.Name,
 				info.Profile.Connect,
 				fmt.Sprintf("%t", info.Profile.TLS),
+				fmt.Sprintf("%t", info.Profile.Insecure),
+				info.Profile.CACert,
+				info.Profile.ClientCert,
+				info.Profile.ClientKey,
 				info.Profile.Timeout.String(),
 				info.Profile.Output,
 			}
