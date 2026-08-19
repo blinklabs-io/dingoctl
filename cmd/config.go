@@ -155,6 +155,13 @@ Examples:
 	return cmd
 }
 
+// profileInfo holds information about a single profile for structured output.
+type profileInfo struct {
+	Name    string          `json:"name" yaml:"name"`
+	Current bool            `json:"current" yaml:"current"`
+	Profile *config.Profile `json:"profile,omitempty" yaml:"profile,omitempty"`
+}
+
 // newConfigListCmd creates the 'config list' subcommand.
 func newConfigListCmd() *cobra.Command {
 	var verbose bool
@@ -179,27 +186,34 @@ Use --verbose to show all settings for each profile.`,
 			names := cfg.ListProfiles()
 			sort.Strings(names)
 
-			// For structured output formats, return profile data as structured data
+			// For structured output formats, build profile list
 			if printer.Format() == "json" || printer.Format() == "yaml" || printer.Format() == "table" {
-				type ProfileInfo struct {
-					Name    string          `json:"name" yaml:"name"`
-					Current bool            `json:"current" yaml:"current"`
-					Profile *config.Profile `json:"profile,omitempty" yaml:"profile,omitempty"`
-				}
-				var profiles []ProfileInfo
+				var profiles []profileInfo
 				for _, name := range names {
 					profile := cfg.GetProfile(name)
 					if profile == nil {
 						continue
 					}
-					info := ProfileInfo{
+					info := profileInfo{
 						Name:    name,
 						Current: name == cfg.CurrentProfile,
-					}
-					if verbose {
-						info.Profile = profile
+						Profile: profile,
 					}
 					profiles = append(profiles, info)
+				}
+
+				// For table format, wrap in TableWriter
+				if printer.Format() == "table" {
+					return printer.Print(profileListResult{
+						profiles: profiles,
+						verbose:  verbose,
+					})
+				}
+				// For JSON/YAML in non-verbose mode, omit Profile details
+				if !verbose {
+					for i := range profiles {
+						profiles[i].Profile = nil
+					}
 				}
 				return printer.Print(profiles)
 			}
@@ -364,4 +378,49 @@ func setProfileField(p *config.Profile, key, value string) error {
 		return fmt.Errorf("unknown config key %q", key)
 	}
 	return nil
+}
+
+// profileListResult wraps a list of profiles for table output.
+type profileListResult struct {
+	profiles []profileInfo
+	verbose  bool
+}
+
+var _ output.TableWriter = profileListResult{}
+
+// TableHeader returns the column names for the profile list table.
+func (r profileListResult) TableHeader() []string {
+	if r.verbose {
+		return []string{"current", "name", "connect", "tls", "timeout", "output"}
+	}
+	return []string{"current", "name", "connect"}
+}
+
+// TableRows returns one row per profile.
+func (r profileListResult) TableRows() [][]string {
+	rows := make([][]string, len(r.profiles))
+	for i, info := range r.profiles {
+		marker := ""
+		if info.Current {
+			marker = "*"
+		}
+
+		if r.verbose {
+			rows[i] = []string{
+				marker,
+				info.Name,
+				info.Profile.Connect,
+				fmt.Sprintf("%t", info.Profile.TLS),
+				info.Profile.Timeout.String(),
+				info.Profile.Output,
+			}
+		} else {
+			rows[i] = []string{
+				marker,
+				info.Name,
+				info.Profile.Connect,
+			}
+		}
+	}
+	return rows
 }
