@@ -2,6 +2,8 @@ module github.com/blinklabs-io/dingoctl
 
 go 1.25.0
 
+toolchain go1.25.14
+
 require (
 	connectrpc.com/connect v1.20.0
 	github.com/blinklabs-io/bark v0.1.0
@@ -46,5 +48,5 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )
