@@ -49,5 +49,5 @@ func GetConfigDir() string {
 // EnsureConfigDir creates the config directory if it doesn't exist.
 func EnsureConfigDir() error {
 	dir := GetConfigDir()
-	return os.MkdirAll(dir, 0o755)
+	return os.MkdirAll(dir, 0o750)
 }
