@@ -1,0 +1,93 @@
+version: 2
+
+project_name: dingoctl
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: dingoctl
+    main: .
+    binary: dingoctl
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/blinklabs-io/dingoctl/internal/version.Version={{ .Version }}
+      - -X github.com/blinklabs-io/dingoctl/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/blinklabs-io/dingoctl/internal/version.BuildDate={{ .Date }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: dingoctl
+    ids:
+      - dingoctl
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
+
+checksum:
+  name_template: 'checksums.txt'
+
+# Keyless signing of the checksums file using cosign + Sigstore.
+signs:
+  - cmd: cosign
+    signature: '${artifact}.sig'
+    certificate: '${artifact}.pem'
+    args:
+      - sign-blob
+      - '--output-signature=${signature}'
+      - '--output-certificate=${certificate}'
+      - '${artifact}'
+      - '--yes'
+    artifacts: checksum
+    output: true
+
+homebrew_casks:
+  - name: dingoctl
+    repository:
+      owner: blinklabs-io
+      name: homebrew-tap
+      token: '{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}'
+    homepage: 'https://github.com/blinklabs-io/dingoctl'
+    description: 'Command-line interface for managing a running Dingo Cardano node'
+    license: 'Apache-2.0'
+    commit_author:
+      name: blinklabs-bot
+      email: 'support@blinklabs.io'
+    # The released binaries are not notarized with Apple, so strip the
+    # quarantine attribute on install to avoid Gatekeeper warnings.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/dingoctl"]
+          end
+
+release:
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch

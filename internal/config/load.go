@@ -110,7 +110,7 @@ func (c *Config) Save() error {
 func (c *Config) SaveTo(path string) error {
 	// Ensure the directory for the given path exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -125,8 +125,9 @@ func (c *Config) SaveTo(path string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// Write to file. Use 0600 because the config may contain client keys
+	// and other credentials that should not be world-readable.
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file %q: %w", path, err)
 	}
 
