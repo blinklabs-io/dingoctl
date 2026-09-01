@@ -17,6 +17,7 @@ package cmd
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -232,10 +233,13 @@ Use --verbose to show all settings for each profile.`,
 
 				if verbose {
 					printer.Println(fmt.Sprintf("%s %s:", marker, name))
+					//nolint:gosec // intentionally rendering the profile config
+					// (including any credential fields) for the user who asked
+					// to view it.
 					data, _ := yaml.Marshal(profile)
 					for _, line := range strings.Split(string(data), "\n") {
 						if line != "" {
-							printer.Println(fmt.Sprintf("    %s", line))
+							printer.Println("    " + line)
 						}
 					}
 				} else {
@@ -327,9 +331,9 @@ func getProfileField(p *config.Profile, key string) (string, error) {
 	case "connect":
 		return p.Connect, nil
 	case "tls":
-		return fmt.Sprintf("%t", p.TLS), nil
+		return strconv.FormatBool(p.TLS), nil
 	case "insecure":
-		return fmt.Sprintf("%t", p.Insecure), nil
+		return strconv.FormatBool(p.Insecure), nil
 	case "ca_cert", "ca-cert":
 		return p.CACert, nil
 	case "client_cert", "client-cert":
@@ -410,8 +414,8 @@ func (r profileListResult) TableRows() [][]string {
 				marker,
 				info.Name,
 				info.Profile.Connect,
-				fmt.Sprintf("%t", info.Profile.TLS),
-				fmt.Sprintf("%t", info.Profile.Insecure),
+				strconv.FormatBool(info.Profile.TLS),
+				strconv.FormatBool(info.Profile.Insecure),
 				info.Profile.CACert,
 				info.Profile.ClientCert,
 				info.Profile.ClientKey,

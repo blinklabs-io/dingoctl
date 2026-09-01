@@ -27,3 +27,4 @@ go.work.sum
 # Build output
 bin/
 dingoctl
+dist/

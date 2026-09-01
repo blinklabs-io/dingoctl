@@ -2,17 +2,19 @@ module github.com/blinklabs-io/dingoctl
 
 go 1.25.0
 
+toolchain go1.25.14
+
 require (
 	connectrpc.com/connect v1.20.0
 	github.com/blinklabs-io/bark v0.2.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/mattn/go-isatty v0.0.22
+	github.com/mattn/go-isatty v0.0.24
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	go.yaml.in/yaml/v3 v3.0.4
-	golang.org/x/net v0.56.0
-	google.golang.org/protobuf v1.36.11
+	go.yaml.in/yaml/v3 v3.0.5
+	golang.org/x/net v0.58.0
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -45,6 +47,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 )

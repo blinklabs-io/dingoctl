@@ -17,6 +17,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -291,7 +292,7 @@ func persistentPreRun(cmd *cobra.Command, _ []string) error {
 
 	// --client-cert and --client-key must always be provided together.
 	if (globalFlags.ClientCert == "") != (globalFlags.ClientKey == "") {
-		return fmt.Errorf("--client-cert and --client-key must be provided together")
+		return errors.New("--client-cert and --client-key must be provided together")
 	}
 
 	// Validate and set output format

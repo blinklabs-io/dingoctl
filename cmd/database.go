@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -948,9 +949,10 @@ func requestCancelIfInterrupted(
 	if !shouldRequestCancelOnInterrupt(parentCtx) {
 		return
 	}
-	GetOutputPrinter().Println(fmt.Sprintf(
-		"Interrupted — requesting the server cancel operation_id=%s", opID,
-	))
+	GetOutputPrinter().Println("Interrupted — requesting the server cancel operation_id=" + opID)
+	//nolint:contextcheck // requestCancelOnInterrupt intentionally uses a
+	// fresh Background-derived context so the cleanup request survives the
+	// already-cancelled caller context.
 	requestCancelOnInterrupt(svc, opID)
 }
 
@@ -1103,6 +1105,8 @@ func printTerminalResult(
 	case databasev1alpha1.OperationStatus_OPERATION_STATUS_FAILED,
 		databasev1alpha1.OperationStatus_OPERATION_STATUS_CANCELLED:
 		return fmt.Errorf("%s %s: %s", kind, statusString(status), progress.GetMessage())
+	default:
+		// Non-terminal or successful statuses need no error.
 	}
 	return nil
 }
@@ -1120,7 +1124,7 @@ type operationStartedResult struct {
 }
 
 func (r operationStartedResult) String() string {
-	return fmt.Sprintf("Started: operation_id=%s", r.OperationID)
+	return "Started: operation_id=" + r.OperationID
 }
 
 type operationCancelledResult struct {
@@ -1364,7 +1368,7 @@ func (r snapshotListResult) String() string {
 	}
 	out := strings.Join(lines, "\n")
 	if r.NextPageToken != "" {
-		out += fmt.Sprintf("\nnext_page_token=%s", r.NextPageToken)
+		out += "\nnext_page_token=" + r.NextPageToken
 	}
 	return out
 }
@@ -1405,7 +1409,7 @@ func (r snapshotListResult) TableRows() [][]string {
 			s.Name,
 			s.Description,
 			s.Tip.String(),
-			fmt.Sprintf("%d", s.SizeBytes),
+			strconv.FormatUint(s.SizeBytes, 10),
 			createdAt,
 			s.Location,
 		}
@@ -1421,7 +1425,7 @@ func (r snapshotListResult) TableFooter() string {
 	if r.NextPageToken == "" {
 		return ""
 	}
-	return fmt.Sprintf("next_page_token=%s", r.NextPageToken)
+	return "next_page_token=" + r.NextPageToken
 }
 
 type snapshotDeletedResult struct {
@@ -1431,7 +1435,7 @@ type snapshotDeletedResult struct {
 
 func (r snapshotDeletedResult) String() string {
 	if r.DeletedAt == nil {
-		return fmt.Sprintf("Deleted snapshot %s", r.SnapshotID)
+		return "Deleted snapshot " + r.SnapshotID
 	}
 	return fmt.Sprintf("Deleted snapshot %s at %s", r.SnapshotID, r.DeletedAt.Format(time.RFC3339))
 }
@@ -1466,7 +1470,7 @@ func (r operationHistoryResult) String() string {
 	}
 	out := strings.Join(lines, "\n")
 	if r.NextPageToken != "" {
-		out += fmt.Sprintf("\nnext_page_token=%s", r.NextPageToken)
+		out += "\nnext_page_token=" + r.NextPageToken
 	}
 	return out
 }
@@ -1515,5 +1519,5 @@ func (r operationHistoryResult) TableFooter() string {
 	if r.NextPageToken == "" {
 		return ""
 	}
-	return fmt.Sprintf("next_page_token=%s", r.NextPageToken)
+	return "next_page_token=" + r.NextPageToken
 }
