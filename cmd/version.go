@@ -21,7 +21,6 @@ import (
 
 	"connectrpc.com/connect"
 	lifecyclev1alpha1 "github.com/blinklabs-io/bark/proto/v1alpha1/lifecycle"
-	"github.com/blinklabs-io/dingoctl/internal/client"
 	"github.com/blinklabs-io/dingoctl/internal/errs"
 	"github.com/blinklabs-io/dingoctl/internal/version"
 	"github.com/spf13/cobra"
@@ -35,12 +34,12 @@ type versionResult struct {
 
 func (r versionResult) String() string {
 	if r.Node != nil {
-		return fmt.Sprintf("dingoctl %s\nNode: %s", r.CLI, *r.Node)
+		return "dingoctl " + r.CLI + "\nNode: " + *r.Node
 	}
 	if r.NodeError != nil {
-		return fmt.Sprintf("dingoctl %s\nNode: <%s>", r.CLI, *r.NodeError)
+		return "dingoctl " + r.CLI + "\nNode: <" + *r.NodeError + ">"
 	}
-	return fmt.Sprintf("dingoctl %s", r.CLI)
+	return "dingoctl " + r.CLI
 }
 
 func newVersionCmd() *cobra.Command {
@@ -65,22 +64,22 @@ Otherwise, the CLI version and the connected node's version are shown.`,
 			// Try to get node version info.
 			c, err := GetClient()
 			if err != nil {
-				msg := fmt.Sprintf("unable to connect: %s", errs.Format(err))
+				msg := "unable to connect: " + errs.Format(err)
 				result.NodeError = &msg
 				return GetOutputPrinter().Print(result)
 			}
 
 			// Version command should stay quick: this is best-effort metadata, not a required RPC.
-			statusCtx, cancel := context.WithTimeout(client.WithNoRetry(cmd.Context()), 3*time.Second)
+			statusCtx, cancel := context.WithTimeout(cmd.Context(), 3*time.Second)
 			defer cancel()
 			resp, err := c.LifecycleService().GetStatus(statusCtx, connect.NewRequest(&lifecyclev1alpha1.GetStatusRequest{}))
 			if err != nil {
-				msg := fmt.Sprintf("unable to get status: %s", errs.Format(err))
+				msg := "unable to get status: " + errs.Format(err)
 				result.NodeError = &msg
 				return GetOutputPrinter().Print(result)
 			}
 
-			nodeVersion := resp.Msg.Version
+			nodeVersion := resp.Msg.GetVersion()
 			result.Node = &nodeVersion
 			return GetOutputPrinter().Print(result)
 		},

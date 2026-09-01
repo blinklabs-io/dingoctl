@@ -66,7 +66,7 @@ func TestVersionCommand_JSONOutputIncludesNodeVersion(t *testing.T) {
 	}
 }
 
-func TestVersionCommand_StatusErrorUsesNoRetryAndReturnsStructuredOutput(t *testing.T) {
+func TestVersionCommand_StatusErrorRetriesAndReturnsStructuredOutput(t *testing.T) {
 	fake, buf := setupLifecycleCommandTest(t)
 	globalFlags.Output = "json"
 	fake.statusErr = connect.NewError(connect.CodeUnavailable, errors.New("try again"))
@@ -94,8 +94,8 @@ func TestVersionCommand_StatusErrorUsesNoRetryAndReturnsStructuredOutput(t *test
 	if got["node"] != nil {
 		t.Fatalf("expected node to be absent/null on status error, got: %#v", got["node"])
 	}
-	if fake.statusReqs != 1 {
-		t.Fatalf("expected exactly one GetStatus request under WithNoRetry, got %d", fake.statusReqs)
+	if fake.statusReqs != 4 {
+		t.Fatalf("expected 4 GetStatus attempts with the default retry budget, got %d", fake.statusReqs)
 	}
 }
 

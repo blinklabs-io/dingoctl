@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,7 +54,7 @@ confirmation unless --no-confirm is given.`,
 				return err
 			}
 			if !ok {
-				GetOutputPrinter().Println("Aborted.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return nil
 			}
 
@@ -80,9 +81,9 @@ confirmation unless --no-confirm is given.`,
 				return err
 			}
 
-			result := stopResult{EffectiveTimeout: resp.Msg.EffectiveTimeout.AsDuration()}
-			if resp.Msg.Deadline != nil {
-				deadline := resp.Msg.Deadline.AsTime()
+			result := stopResult{EffectiveTimeout: resp.Msg.GetEffectiveTimeout().AsDuration()}
+			if resp.Msg.GetDeadline() != nil {
+				deadline := resp.Msg.GetDeadline().AsTime()
 				result.Deadline = &deadline
 			}
 			return GetOutputPrinter().Print(result)
@@ -124,7 +125,7 @@ requires confirmation unless --no-confirm is given.`,
 				return err
 			}
 			if !ok {
-				GetOutputPrinter().Println("Aborted.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return nil
 			}
 
@@ -151,9 +152,9 @@ requires confirmation unless --no-confirm is given.`,
 				return err
 			}
 
-			result := restartResult{EffectiveTimeout: resp.Msg.EffectiveTimeout.AsDuration()}
-			if resp.Msg.Deadline != nil {
-				deadline := resp.Msg.Deadline.AsTime()
+			result := restartResult{EffectiveTimeout: resp.Msg.GetEffectiveTimeout().AsDuration()}
+			if resp.Msg.GetDeadline() != nil {
+				deadline := resp.Msg.GetDeadline().AsTime()
 				result.Deadline = &deadline
 			}
 			return GetOutputPrinter().Print(result)
@@ -296,20 +297,20 @@ func (r statusResult) TableRows() [][]string {
 	if r.TipSlot != nil || r.TipHash != nil || r.TipBlockNumber != nil {
 		var parts []string
 		if r.TipSlot != nil {
-			parts = append(parts, fmt.Sprintf("slot:%d", *r.TipSlot))
+			parts = append(parts, "slot:"+strconv.FormatUint(*r.TipSlot, 10))
 		}
 		if r.TipBlockNumber != nil {
-			parts = append(parts, fmt.Sprintf("block:%d", *r.TipBlockNumber))
+			parts = append(parts, "block:"+strconv.FormatUint(*r.TipBlockNumber, 10))
 		}
 		if r.TipHash != nil {
-			parts = append(parts, fmt.Sprintf("hash:%s", *r.TipHash))
+			parts = append(parts, "hash:"+*r.TipHash)
 		}
 		tipInfo = strings.Join(parts, " ")
 	}
 
 	slotsBehind := ""
 	if r.SlotsBehind > 0 {
-		slotsBehind = fmt.Sprintf("%d", r.SlotsBehind)
+		slotsBehind = strconv.FormatUint(r.SlotsBehind, 10)
 	}
 
 	return [][]string{{
@@ -317,7 +318,7 @@ func (r statusResult) TableRows() [][]string {
 		r.Health,
 		r.Uptime.String(),
 		r.Version,
-		fmt.Sprintf("%t", r.Synced),
+		strconv.FormatBool(r.Synced),
 		tipInfo,
 		slotsBehind,
 	}}
@@ -326,35 +327,35 @@ func (r statusResult) TableRows() [][]string {
 // statusResultFromProto converts the proto status response to our result type.
 func statusResultFromProto(msg *lifecyclev1alpha1.GetStatusResponse) statusResult {
 	result := statusResult{
-		State:   lifecycleStateString(msg.State),
-		Health:  healthStatusString(msg.Health),
-		Uptime:  msg.Uptime.AsDuration(),
-		Version: msg.Version,
+		State:   lifecycleStateString(msg.GetState()),
+		Health:  healthStatusString(msg.GetHealth()),
+		Uptime:  msg.GetUptime().AsDuration(),
+		Version: msg.GetVersion(),
 	}
 
-	if msg.Sync != nil {
-		result.Synced = msg.Sync.Synced
-		result.EstimatedNetworkTipSlot = msg.Sync.EstimatedNetworkTipSlot
-		result.SlotsBehind = msg.Sync.SlotsBehind
+	if sync := msg.GetSync(); sync != nil {
+		result.Synced = sync.GetSynced()
+		result.EstimatedNetworkTipSlot = sync.GetEstimatedNetworkTipSlot()
+		result.SlotsBehind = sync.GetSlotsBehind()
 
-		if msg.Sync.Tip != nil {
-			if msg.Sync.Tip.Slot != nil {
-				slot := *msg.Sync.Tip.Slot
+		if tip := sync.GetTip(); tip != nil {
+			if tip.GetSlot() != nil {
+				slot := *tip.GetSlot()
 				result.TipSlot = &slot
 			}
-			if msg.Sync.Tip.Hash != nil {
-				hash := *msg.Sync.Tip.Hash
+			if tip.GetHash() != nil {
+				hash := *tip.GetHash()
 				result.TipHash = &hash
 			}
-			if msg.Sync.Tip.BlockNumber != nil {
-				blockNum := *msg.Sync.Tip.BlockNumber
+			if tip.GetBlockNumber() != nil {
+				blockNum := *tip.GetBlockNumber()
 				result.TipBlockNumber = &blockNum
 			}
 		}
 	}
 
-	if msg.Deadline != nil {
-		deadline := msg.Deadline.AsTime()
+	if msg.GetDeadline() != nil {
+		deadline := msg.GetDeadline().AsTime()
 		result.Deadline = &deadline
 	}
 

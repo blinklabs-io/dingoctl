@@ -106,6 +106,7 @@ dingoctl [flags] <command> [args]
 ### Commands
 
 - `version`: Print CLI and node version information
+- `completion [bash|zsh|fish|powershell]`: Generate shell completion scripts
 - `config`: Manage local dingoctl profiles and settings
 - `database`: Manage snapshots, restore, truncate, and operation status
 - `stop`: Gracefully stop the connected Dingo node

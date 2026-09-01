@@ -531,9 +531,12 @@ func setupLifecycleCommandTest(t *testing.T) (*fakeLifecycleService, *bytes.Buff
 
 	addr := strings.TrimPrefix(srv.URL, "https://")
 	c, err := client.New(client.Config{
-		Address:  addr,
-		Insecure: true,
-		Timeout:  2 * time.Second,
+		Address:        addr,
+		Insecure:       true,
+		Timeout:        2 * time.Second,
+		MaxRetries:     3,
+		RetryBaseDelay: time.Millisecond,
+		RetryMaxDelay:  5 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("construct fake session client: %v", err)
