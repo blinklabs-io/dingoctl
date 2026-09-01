@@ -15,13 +15,33 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 	lifecyclev1alpha1 "github.com/blinklabs-io/bark/proto/v1alpha1/lifecycle"
+	"github.com/blinklabs-io/dingoctl/internal/client"
+	"github.com/blinklabs-io/dingoctl/internal/errs"
 	"github.com/blinklabs-io/dingoctl/internal/version"
 	"github.com/spf13/cobra"
 )
+
+type versionResult struct {
+	CLI       string  `json:"cli" yaml:"cli"`
+	Node      *string `json:"node,omitempty" yaml:"node,omitempty"`
+	NodeError *string `json:"node_error,omitempty" yaml:"node_error,omitempty"`
+}
+
+func (r versionResult) String() string {
+	if r.Node != nil {
+		return fmt.Sprintf("dingoctl %s\nNode: %s", r.CLI, *r.Node)
+	}
+	if r.NodeError != nil {
+		return fmt.Sprintf("dingoctl %s\nNode: <%s>", r.CLI, *r.NodeError)
+	}
+	return fmt.Sprintf("dingoctl %s", r.CLI)
+}
 
 func newVersionCmd() *cobra.Command {
 	var short bool
@@ -40,32 +60,29 @@ Otherwise, the CLI version and the connected node's version are shown.`,
 				return err
 			}
 
-			// Print CLI version
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "dingoctl %s\n", version.GetVersionString()); err != nil {
-				return err
-			}
+			result := versionResult{CLI: version.GetVersionString()}
 
-			// Try to get node version info
+			// Try to get node version info.
 			c, err := GetClient()
 			if err != nil {
-				// If we can't connect, just show CLI version
-				_, writeErr := fmt.Fprintf(cmd.OutOrStderr(), "\nNode: <unable to connect: %v>\n", err)
-				return writeErr
+				msg := fmt.Sprintf("unable to connect: %s", errs.Format(err))
+				result.NodeError = &msg
+				return GetOutputPrinter().Print(result)
 			}
 
-			resp, err := c.LifecycleService().GetStatus(cmd.Context(), connect.NewRequest(&lifecyclev1alpha1.GetStatusRequest{}))
+			// Version command should stay quick: this is best-effort metadata, not a required RPC.
+			statusCtx, cancel := context.WithTimeout(client.WithNoRetry(cmd.Context()), 3*time.Second)
+			defer cancel()
+			resp, err := c.LifecycleService().GetStatus(statusCtx, connect.NewRequest(&lifecyclev1alpha1.GetStatusRequest{}))
 			if err != nil {
-				// If status fails, show CLI version but note the error
-				_, writeErr := fmt.Fprintf(cmd.OutOrStderr(), "\nNode: <unable to get status: %v>\n", err)
-				return writeErr
+				msg := fmt.Sprintf("unable to get status: %s", errs.Format(err))
+				result.NodeError = &msg
+				return GetOutputPrinter().Print(result)
 			}
 
-			// Show node version from status response
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Node: %s\n", resp.Msg.Version); err != nil {
-				return err
-			}
-
-			return nil
+			nodeVersion := resp.Msg.Version
+			result.Node = &nodeVersion
+			return GetOutputPrinter().Print(result)
 		},
 	}
 

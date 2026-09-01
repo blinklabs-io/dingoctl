@@ -15,17 +15,13 @@
 package cmd
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 	lifecyclev1alpha1 "github.com/blinklabs-io/bark/proto/v1alpha1/lifecycle"
 	"github.com/blinklabs-io/dingoctl/internal/client"
-	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -52,8 +48,13 @@ This is a destructive operation that takes the node offline. It requires
 confirmation unless --no-confirm is given.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !noConfirm && !confirmDestructiveOp("stop the node") {
-				return errors.New("operation cancelled")
+			ok, err := confirm(cmd, "This will stop the node. Continue?", noConfirm)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				GetOutputPrinter().Println("Aborted.")
+				return nil
 			}
 
 			c, err := GetClient()
@@ -79,10 +80,12 @@ confirmation unless --no-confirm is given.`,
 				return err
 			}
 
-			return GetOutputPrinter().Print(stopResult{
-				EffectiveTimeout: resp.Msg.EffectiveTimeout.AsDuration(),
-				Deadline:         resp.Msg.Deadline.AsTime(),
-			})
+			result := stopResult{EffectiveTimeout: resp.Msg.EffectiveTimeout.AsDuration()}
+			if resp.Msg.Deadline != nil {
+				deadline := resp.Msg.Deadline.AsTime()
+				result.Deadline = &deadline
+			}
+			return GetOutputPrinter().Print(result)
 		},
 	}
 
@@ -116,8 +119,13 @@ This is a disruptive operation that takes the node offline temporarily. It
 requires confirmation unless --no-confirm is given.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !noConfirm && !confirmDestructiveOp("restart the node") {
-				return errors.New("operation cancelled")
+			ok, err := confirm(cmd, "This will restart the node. Continue?", noConfirm)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				GetOutputPrinter().Println("Aborted.")
+				return nil
 			}
 
 			c, err := GetClient()
@@ -143,10 +151,12 @@ requires confirmation unless --no-confirm is given.`,
 				return err
 			}
 
-			return GetOutputPrinter().Print(restartResult{
-				EffectiveTimeout: resp.Msg.EffectiveTimeout.AsDuration(),
-				Deadline:         resp.Msg.Deadline.AsTime(),
-			})
+			result := restartResult{EffectiveTimeout: resp.Msg.EffectiveTimeout.AsDuration()}
+			if resp.Msg.Deadline != nil {
+				deadline := resp.Msg.Deadline.AsTime()
+				result.Deadline = &deadline
+			}
+			return GetOutputPrinter().Print(result)
 		},
 	}
 
@@ -187,46 +197,30 @@ so operators can poll it to observe the transition and the enforced deadline.`,
 	return cmd
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-// confirmDestructiveOp prompts the operator to confirm a destructive action.
-// It returns true if the operator typed "yes" (case-insensitive), false
-// otherwise. When stdin is not a TTY (piped input or non-interactive
-// environment) it returns false immediately — the caller must pass
-// --no-confirm to bypass the check in those cases.
-func confirmDestructiveOp(action string) bool {
-	fd := os.Stdin.Fd()
-	if !isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd) {
-		return false
-	}
-
-	fmt.Fprintf(os.Stderr, "This will %s. Are you sure? (yes/no): ", action)
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return false
-	}
-	answer := strings.TrimSpace(scanner.Text())
-	return strings.EqualFold(answer, "yes")
-}
-
 // ── Result types ─────────────────────────────────────────────────────────
 
 type stopResult struct {
 	EffectiveTimeout time.Duration `json:"effective_timeout" yaml:"effective_timeout"`
-	Deadline         time.Time     `json:"deadline" yaml:"deadline"`
+	Deadline         *time.Time    `json:"deadline,omitempty" yaml:"deadline,omitempty"`
 }
 
 func (r stopResult) String() string {
+	if r.Deadline == nil {
+		return fmt.Sprintf("Stop initiated. Effective timeout: %s", r.EffectiveTimeout)
+	}
 	return fmt.Sprintf("Stop initiated. Effective timeout: %s, deadline: %s",
 		r.EffectiveTimeout, r.Deadline.Format(time.RFC3339))
 }
 
 type restartResult struct {
 	EffectiveTimeout time.Duration `json:"effective_timeout" yaml:"effective_timeout"`
-	Deadline         time.Time     `json:"deadline" yaml:"deadline"`
+	Deadline         *time.Time    `json:"deadline,omitempty" yaml:"deadline,omitempty"`
 }
 
 func (r restartResult) String() string {
+	if r.Deadline == nil {
+		return fmt.Sprintf("Restart initiated. Effective timeout: %s", r.EffectiveTimeout)
+	}
 	return fmt.Sprintf("Restart initiated. Effective timeout: %s, deadline: %s",
 		r.EffectiveTimeout, r.Deadline.Format(time.RFC3339))
 }
@@ -292,7 +286,7 @@ func (r statusResult) String() string {
 }
 
 func (r statusResult) TableHeader() []string {
-	return []string{"State", "Health", "Uptime", "Version", "Synced", "Tip Slot", "Slots Behind"}
+	return []string{"State", "Health", "Uptime", "Version", "Synced", "Tip", "Slots Behind"}
 }
 
 func (r statusResult) TableRows() [][]string {

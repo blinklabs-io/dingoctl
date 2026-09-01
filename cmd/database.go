@@ -813,7 +813,7 @@ func confirm(cmd *cobra.Command, prompt string, noConfirm bool) (bool, error) {
 	if noConfirm {
 		return true, nil
 	}
-	if f, ok := cmd.InOrStdin().(*os.File); !ok || !isatty.IsTerminal(f.Fd()) {
+	if f, ok := cmd.InOrStdin().(*os.File); !ok || (!isatty.IsTerminal(f.Fd()) && !isatty.IsCygwinTerminal(f.Fd())) {
 		return false, errors.New(
 			"refusing to prompt for confirmation on a non-interactive input; pass --no-confirm to proceed",
 		)

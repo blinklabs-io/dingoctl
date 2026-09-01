@@ -103,6 +103,15 @@ Settings are applied in this order (highest to lowest priority):
 dingoctl [flags] <command> [args]
 ```
 
+### Commands
+
+- `version`: Print CLI and node version information
+- `config`: Manage local dingoctl profiles and settings
+- `database`: Manage snapshots, restore, truncate, and operation status
+- `stop`: Gracefully stop the connected Dingo node
+- `restart`: Gracefully restart the connected Dingo node
+- `status`: Show lifecycle state, health, uptime, and sync status
+
 ### Global Flags
 
 - `--connect <address>`: Node address (host:port)
@@ -141,12 +150,14 @@ localhost:9091`.
   TLS. This is **additionally required** against a node that has
   `barkClientCaFilePath` configured, for `snapshot create`, `snapshot
   delete`, `snapshot verify`, `restore`, `truncate`, and `cancel`
-  specifically — not just the destructive `restore`/`truncate` operations,
-  since the server also authenticates resource-consuming ones like
-  creating or verifying a snapshot. Without a client cert, those commands
-  fail with an unauthenticated error (read-only commands like `dingoctl
-  database info` still work with just `--tls`, no client cert needed). Ask
-  whoever operates the node for a certificate signed by its configured CA.
+  specifically. In addition, Bark's `LifecycleService` is mTLS-protected,
+  so every lifecycle command (`status`, `version` node lookup, `stop`, and
+  `restart`) also requires `--client-cert`/`--client-key` on such nodes.
+  Without a client cert, those commands fail at the TLS/auth boundary
+  before RPC dispatch. `stop`/`restart` also require an authorized operator
+  principal; an authenticated but unauthorized cert is rejected with
+  permission denied. Ask whoever operates the node for a certificate signed
+  by its configured CA and mapped to the required role.
 
 All of the above can also be set per-profile in the config file; see
 `dingoctl config --help`.
