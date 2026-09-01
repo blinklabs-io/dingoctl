@@ -339,16 +339,13 @@ func statusResultFromProto(msg *lifecyclev1alpha1.GetStatusResponse) statusResul
 		result.SlotsBehind = sync.GetSlotsBehind()
 
 		if tip := sync.GetTip(); tip != nil {
-			if tip.GetSlot() != nil {
-				slot := *tip.GetSlot()
+			if slot := tip.GetSlot(); slot != 0 {
 				result.TipSlot = &slot
 			}
-			if tip.GetHash() != nil {
-				hash := *tip.GetHash()
+			if hash := tip.GetHash(); hash != "" {
 				result.TipHash = &hash
 			}
-			if tip.GetBlockNumber() != nil {
-				blockNum := *tip.GetBlockNumber()
+			if blockNum := tip.GetBlockNumber(); blockNum != 0 {
 				result.TipBlockNumber = &blockNum
 			}
 		}
