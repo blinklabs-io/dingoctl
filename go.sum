@@ -4,8 +4,8 @@ github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiE
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/aymanbagabas/go-udiff v0.3.1 h1:LV+qyBQ2pqe0u42ZsUEtPiCaUoqgA9gYRDs3vj1nolY=
 github.com/aymanbagabas/go-udiff v0.3.1/go.mod h1:G0fsKmG+P6ylD0r6N/KgQD/nWzgfnl8ZBcNLgcbrw8E=
-github.com/blinklabs-io/bark v0.1.0 h1:hnFSOcnOlEUoHz7dFsT67aNVip+oYyPo6iKk6y1/TKc=
-github.com/blinklabs-io/bark v0.1.0/go.mod h1:Csm/dR5sdx4T/N9cZ3ZO+3tFmSWFul2HnmWDQtugWms=
+github.com/blinklabs-io/bark v0.2.0 h1:PWMUGaMj28omfWwKLjRsE0OVFlzDJlicEVMMfv+JDCg=
+github.com/blinklabs-io/bark v0.2.0/go.mod h1:Csm/dR5sdx4T/N9cZ3ZO+3tFmSWFul2HnmWDQtugWms=
 github.com/charmbracelet/bubbles v1.0.0 h1:12J8/ak/uCZEMQ6KU7pcfwceyjLlWsDLAxB5fXonfvc=
 github.com/charmbracelet/bubbles v1.0.0/go.mod h1:9d/Zd5GdnauMI5ivUIVisuEm3ave1XwXtD1ckyV6r3E=
 github.com/charmbracelet/bubbletea v1.3.10 h1:otUDHWMMzQSB0Pkc87rm691KZ3SWa4KUlvF9nRvCICw=
