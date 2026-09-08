@@ -406,6 +406,36 @@ func TestStatusResultFromProto_BlockNumberOnlyTip(t *testing.T) {
 	}
 }
 
+func TestStatusResultFromProto_ChainOriginTip(t *testing.T) {
+	zero := uint64(0)
+	msg := &lifecyclev1alpha1.GetStatusResponse{
+		State:   lifecyclev1alpha1.LifecycleState_LIFECYCLE_STATE_RUNNING,
+		Health:  lifecyclev1alpha1.HealthStatus_HEALTH_STATUS_HEALTHY,
+		Uptime:  durationpb.New(90 * time.Second),
+		Version: "1.2.3",
+		Sync: &lifecyclev1alpha1.SyncStatus{
+			Synced: true,
+			Tip: &lifecyclev1alpha1.BlockRef{
+				Slot:        &zero,
+				BlockNumber: &zero,
+			},
+		},
+	}
+
+	// A tip at chain origin (slot 0, block number 0) is a real, explicitly-set
+	// tip and must not be treated the same as an absent SyncStatus.Tip.
+	r := statusResultFromProto(msg)
+	if r.TipSlot == nil || *r.TipSlot != 0 {
+		t.Fatalf("expected tip slot 0, got %#v", r.TipSlot)
+	}
+	if r.TipBlockNumber == nil || *r.TipBlockNumber != 0 {
+		t.Fatalf("expected tip block number 0, got %#v", r.TipBlockNumber)
+	}
+	if r.TipHash != nil {
+		t.Fatalf("expected nil tip hash for chain-origin tip, got %v", *r.TipHash)
+	}
+}
+
 func TestLifecycleStateString_AllKnownAndUnknown(t *testing.T) {
 	if got := lifecycleStateString(lifecyclev1alpha1.LifecycleState_LIFECYCLE_STATE_RUNNING); got != "running" {
 		t.Fatalf("running mapping: got %q", got)

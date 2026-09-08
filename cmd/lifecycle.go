@@ -339,13 +339,20 @@ func statusResultFromProto(msg *lifecyclev1alpha1.GetStatusResponse) statusResul
 		result.SlotsBehind = sync.GetSlotsBehind()
 
 		if tip := sync.GetTip(); tip != nil {
-			if slot := tip.GetSlot(); slot != 0 {
+			// Hash, Slot, and BlockNumber are optional in lifecycle.proto and carry
+			// explicit presence, so check the pointer itself rather than the getter's
+			// zero-value fallback — a tip at chain origin (slot 0, block number 0) is
+			// a real tip, not an absent one.
+			if tip.Slot != nil {
+				slot := *tip.Slot
 				result.TipSlot = &slot
 			}
-			if hash := tip.GetHash(); hash != "" {
+			if tip.Hash != nil {
+				hash := *tip.Hash
 				result.TipHash = &hash
 			}
-			if blockNum := tip.GetBlockNumber(); blockNum != 0 {
+			if tip.BlockNumber != nil {
+				blockNum := *tip.BlockNumber
 				result.TipBlockNumber = &blockNum
 			}
 		}
