@@ -344,15 +344,15 @@ func statusResultFromProto(msg *lifecyclev1alpha1.GetStatusResponse) statusResul
 			// zero-value fallback — a tip at chain origin (slot 0, block number 0) is
 			// a real tip, not an absent one.
 			if tip.Slot != nil {
-				slot := *tip.Slot
+				slot := tip.GetSlot()
 				result.TipSlot = &slot
 			}
 			if tip.Hash != nil {
-				hash := *tip.Hash
+				hash := tip.GetHash()
 				result.TipHash = &hash
 			}
 			if tip.BlockNumber != nil {
-				blockNum := *tip.BlockNumber
+				blockNum := tip.GetBlockNumber()
 				result.TipBlockNumber = &blockNum
 			}
 		}
