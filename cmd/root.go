@@ -182,6 +182,9 @@ func init() {
 	rootCmd.AddCommand(newCompletionCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newDatabaseCmd())
+	rootCmd.AddCommand(newStopCmd())
+	rootCmd.AddCommand(newRestartCmd())
+	rootCmd.AddCommand(newStatusCmd())
 }
 
 // initConfig sets up the config file search paths via Viper.

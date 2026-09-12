@@ -19,16 +19,17 @@ import (
 
 	"connectrpc.com/connect"
 	databasev1alpha1connect "github.com/blinklabs-io/bark/proto/v1alpha1/database/databasev1alpha1connect"
+	lifecyclev1alpha1connect "github.com/blinklabs-io/bark/proto/v1alpha1/lifecycle/lifecyclev1alpha1connect"
 )
 
 // Client is the session-scoped handle to a Bark node.  It owns the HTTP
 // transport (and therefore the underlying connection pool) and bundles the
 // ConnectRPC interceptors.  All exported methods are safe for concurrent use.
 //
-// LifecycleService and EventService remain connection-parameter-only below:
-// the Bark protos for those haven't landed yet. DatabaseService (bark#16)
-// has, so it returns the real generated client directly — see its doc
-// comment for the pattern the other two will follow once their protos ship.
+// EventService remains connection-parameter-only below: the Bark proto for it
+// hasn't landed yet. DatabaseService and LifecycleService return the real
+// generated clients directly — see their doc comments. EventService will
+// follow the same pattern once its proto ships.
 type Client struct {
 	httpClient  *http.Client
 	baseURL     string
@@ -89,11 +90,11 @@ func (c *Client) Config() Config { return c.cfg }
 
 // ── Per-service factories ────────────────────────────────────────────────────
 //
-// LifecycleService/EventService below return the three arguments required
-// by every ConnectRPC generated client constructor (NewXxxServiceClient
-// (httpClient, baseURL, opts...)) — they exist now so subcommands have a
-// stable call-site to depend on; each becomes a one-liner like
-// DatabaseService below once its proto is published.
+// EventService below returns the three arguments required by every ConnectRPC
+// generated client constructor (NewXxxServiceClient(httpClient, baseURL, opts...))
+// — it exists now so subcommands have a stable call-site to depend on; it
+// becomes a one-liner like DatabaseService and LifecycleService once its proto
+// is published.
 
 // DatabaseService returns a Bark DatabaseService client bound to this
 // session's shared HTTP transport, base URL, and interceptor chain
@@ -104,10 +105,13 @@ func (c *Client) DatabaseService() databasev1alpha1connect.DatabaseServiceClient
 	)
 }
 
-// LifecycleService returns the connection parameters for the Bark
-// LifecycleService.
-func (c *Client) LifecycleService() (*http.Client, string, []connect.ClientOption) {
-	return c.httpClient, c.baseURL, c.ConnectOptions()
+// LifecycleService returns a Bark LifecycleService client bound to this
+// session's shared HTTP transport, base URL, and interceptor chain
+// (timeout + retry).
+func (c *Client) LifecycleService() lifecyclev1alpha1connect.LifecycleServiceClient {
+	return lifecyclev1alpha1connect.NewLifecycleServiceClient(
+		c.httpClient, c.baseURL, c.connectOpts...,
+	)
 }
 
 // EventService returns the connection parameters for the Bark EventService.

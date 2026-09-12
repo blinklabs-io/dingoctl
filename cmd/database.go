@@ -429,7 +429,7 @@ func newSnapshotDeleteCmd() *cobra.Command {
 				return err
 			}
 			if !ok {
-				GetOutputPrinter().Println("Aborted.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return nil
 			}
 
@@ -565,7 +565,7 @@ serving) for the whole duration of the restore.`,
 				return err
 			}
 			if !ok {
-				GetOutputPrinter().Println("Aborted.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return nil
 			}
 
@@ -675,7 +675,7 @@ duration of the operation.`,
 				return err
 			}
 			if !ok {
-				GetOutputPrinter().Println("Aborted.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return nil
 			}
 
@@ -814,12 +814,12 @@ func confirm(cmd *cobra.Command, prompt string, noConfirm bool) (bool, error) {
 	if noConfirm {
 		return true, nil
 	}
-	if f, ok := cmd.InOrStdin().(*os.File); !ok || !isatty.IsTerminal(f.Fd()) {
+	if f, ok := cmd.InOrStdin().(*os.File); !ok || (!isatty.IsTerminal(f.Fd()) && !isatty.IsCygwinTerminal(f.Fd())) {
 		return false, errors.New(
 			"refusing to prompt for confirmation on a non-interactive input; pass --no-confirm to proceed",
 		)
 	}
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s [y/N]: ", prompt); err != nil {
+	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N]: ", prompt); err != nil {
 		return false, err
 	}
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
