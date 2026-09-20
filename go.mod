@@ -5,7 +5,7 @@ go 1.25.0
 toolchain go1.25.14
 
 require (
-	connectrpc.com/connect v1.20.0
+	connectrpc.com/connect v1.21.0
 	github.com/blinklabs-io/bark v0.2.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
