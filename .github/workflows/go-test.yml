@@ -1,4 +1,5 @@
-name: go-test
+# Generated automatically by org-governance-bot. Do not edit manually.
+name: "go-test"
 
 on:
   pull_request:
@@ -6,13 +7,13 @@ on:
     branches:
       - main
     tags:
-      - 'v*'
+      - v*
 
 jobs:
-  go-test:
+  orchestrate:
     uses: blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main
     with:
       go-versions: '["1.25.x"]'
-      platforms: '["ubuntu-latest", "macos-latest", "windows-latest"]'
+      platforms: '["ubuntu-latest","macos-latest","windows-latest"]'
       pre-test-command: make build
       test-flags: -v -race -timeout 10m

@@ -1,0 +1,21 @@
+# Generated automatically by org-governance-bot. Do not edit manually.
+name: "govulncheck"
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+  schedule:
+    - cron: 0 0 * * 1
+
+permissions:
+  security-events: write
+
+jobs:
+  orchestrate:
+    uses: blinklabs-io/actions/.github/workflows/reuseable-govulncheck.yml@main
+    with:
+      run-gosec: true

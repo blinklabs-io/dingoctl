@@ -1,4 +1,5 @@
-name: golangci-lint
+# Generated automatically by org-governance-bot. Do not edit manually.
+name: "golangci-lint"
 
 on:
   pull_request:
@@ -6,10 +7,10 @@ on:
     branches:
       - main
     tags:
-      - 'v*'
+      - v*
 
 jobs:
-  golangci-lint:
+  orchestrate:
     uses: blinklabs-io/actions/.github/workflows/reuseable-golangci-lint.yml@main
     with:
       go-version: 1.25.x
