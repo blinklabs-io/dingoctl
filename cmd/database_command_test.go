@@ -396,6 +396,32 @@ func TestDatabaseInfoCommand_JSONOutput(t *testing.T) {
 	}
 }
 
+// TestDatabaseInfoCommand_TierAllFormats checks that "info" renders the
+// storage tier in every supported output format.
+func TestDatabaseInfoCommand_TierAllFormats(t *testing.T) {
+	for _, format := range []string{"text", "json", "yaml", "table"} {
+		t.Run(format, func(t *testing.T) {
+			fake, buf := setupDatabaseCommandTest(t)
+			fake.getDatabaseInfoResp = &databasev1alpha1.GetDatabaseInfoResponse{
+				BlockCount: 7,
+				Tier:       "core",
+			}
+			globalFlags.Output = format
+
+			if err := mustExecute(t, []string{"info"}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, "tier") || !strings.Contains(out, "core") {
+				t.Errorf("%s output missing tier: %s", format, out)
+			}
+			if !strings.Contains(out, "block_count") {
+				t.Errorf("%s output missing block_count: %s", format, out)
+			}
+		})
+	}
+}
+
 // TestDatabaseStatusCommand_NoOperationInProgress checks that "status" reports
 // operation_in_progress: false without ever opening a progress stream.
 func TestDatabaseStatusCommand_NoOperationInProgress(t *testing.T) {

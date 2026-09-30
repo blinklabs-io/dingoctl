@@ -293,9 +293,10 @@ func TestDatabaseInfoFromProto(t *testing.T) {
 		OldestSlot:          1,
 		OperationInProgress: true,
 		CurrentOperationId:  &opID,
+		Tier:                "core",
 	}
 	got := databaseInfoFromProto(resp)
-	if got.BlockCount != 5 || !got.OperationInProgress || got.CurrentOperationID != "op-9" {
+	if got.BlockCount != 5 || !got.OperationInProgress || got.CurrentOperationID != "op-9" || got.Tier != "core" {
 		t.Errorf("unexpected mapping: %+v", got)
 	}
 }

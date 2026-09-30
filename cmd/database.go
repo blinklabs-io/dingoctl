@@ -1267,6 +1267,7 @@ func operationRecordFromProto(r *databasev1alpha1.OperationRecord) operationReco
 
 type databaseInfoResult struct {
 	Tip                 blockRefResult         `json:"tip" yaml:"tip"`
+	Tier                string                 `json:"tier,omitempty" yaml:"tier,omitempty"`
 	BlockCount          uint64                 `json:"block_count" yaml:"block_count"`
 	SizeBytes           uint64                 `json:"size_bytes" yaml:"size_bytes"`
 	OldestSlot          uint64                 `json:"oldest_slot" yaml:"oldest_slot"`
@@ -1278,6 +1279,9 @@ type databaseInfoResult struct {
 func (r databaseInfoResult) String() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "tip: %s\n", r.Tip)
+	if r.Tier != "" {
+		fmt.Fprintf(&b, "tier: %s\n", r.Tier)
+	}
 	fmt.Fprintf(&b, "block_count: %d\n", r.BlockCount)
 	fmt.Fprintf(&b, "size_bytes: %d\n", r.SizeBytes)
 	fmt.Fprintf(&b, "oldest_slot: %d\n", r.OldestSlot)
@@ -1297,6 +1301,7 @@ func (r databaseInfoResult) String() string {
 func databaseInfoFromProto(resp *databasev1alpha1.GetDatabaseInfoResponse) databaseInfoResult {
 	return databaseInfoResult{
 		Tip:                 blockRefFromProtoResult(resp.GetTip()),
+		Tier:                resp.GetTier(),
 		BlockCount:          resp.GetBlockCount(),
 		SizeBytes:           resp.GetSizeBytes(),
 		OldestSlot:          resp.GetOldestSlot(),
