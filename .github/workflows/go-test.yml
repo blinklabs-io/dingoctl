@@ -13,8 +13,8 @@ jobs:
   orchestrate:
     uses: blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main
     with:
-      go-versions: '["1.25.x"]'
-      golangci-go-version: 1.25.x
+      go-versions: '["1.26.x"]'
+      golangci-go-version: 1.26.x
       golangci-platform: ubuntu-latest
       platforms: '["ubuntu-latest","macos-latest","windows-latest"]'
       pre-test-command: make build
