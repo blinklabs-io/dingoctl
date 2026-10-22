@@ -1,6 +1,6 @@
 module github.com/blinklabs-io/dingoctl
 
-go 1.25.0
+go 1.26.10
 
 toolchain go1.25.14
 
