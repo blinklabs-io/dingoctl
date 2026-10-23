@@ -22,8 +22,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-
-	"golang.org/x/net/http2"
 )
 
 // buildTransport returns an http.RoundTripper appropriate for cfg.
@@ -36,12 +34,12 @@ import (
 //     skipped; intended only for local development.
 func buildTransport(cfg Config) (http.RoundTripper, error) {
 	if !cfg.TLS && !cfg.Insecure {
-		// Plain-text HTTP/2 (h2c).  DialTLSContext is used by the http2
-		// package even for cleartext connections when AllowHTTP is set; we
-		// return a plain TCP dial so no TLS handshake takes place.
-		return &http2.Transport{
-			AllowHTTP: true,
-			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+		// Plain-text HTTP/2 (h2c) uses a direct TCP dial without a TLS handshake.
+		protocols := new(http.Protocols)
+		protocols.SetUnencryptedHTTP2(true)
+		return &http.Transport{
+			Protocols: protocols,
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				return (&net.Dialer{}).DialContext(ctx, network, addr)
 			},
 		}, nil
