@@ -16,7 +16,6 @@ jobs:
       go-versions: '["1.26.x","1.27.x"]'
       golangci-go-version: 1.26.x
       golangci-platform: ubuntu-latest
-      nilaway-go-version: 1.26.x
       platforms: '["ubuntu-latest","macos-latest","windows-latest"]'
       pre-test-command: make build
       run-golangci-lint: true
