@@ -3,7 +3,7 @@ module github.com/blinklabs-io/dingoctl
 go 1.26.10
 
 require (
-	connectrpc.com/connect v1.21.0
+	connectrpc.com/connect v1.21.1
 	github.com/blinklabs-io/bark v0.2.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -11,7 +11,6 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	go.yaml.in/yaml/v3 v3.0.5
-	golang.org/x/net v0.60.0
 	google.golang.org/protobuf v1.36.12
 )
 
