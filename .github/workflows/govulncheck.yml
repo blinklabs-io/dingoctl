@@ -16,6 +16,6 @@ permissions:
 
 jobs:
   orchestrate:
-    uses: blinklabs-io/actions/.github/workflows/reuseable-govulncheck.yml@d3aa875070b18acdcb31256100558d44c16b512f
+    uses: blinklabs-io/actions/.github/workflows/reuseable-govulncheck.yml@e3dee08bef03cc5e245e18069f48644a6084a4f3
     with:
       run-gosec: true
