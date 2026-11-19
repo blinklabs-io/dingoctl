@@ -142,7 +142,7 @@ dingoctl --output json events subscribe --type 'chain.update'
   instead of the default at-most-once Subscribe. Events are acknowledged
   after they are written (including ones a filter drops), a reconnect
   resumes from the last acknowledged event, and redelivered events are
-  dropped by id.
+  skipped by sequence.
 - `--subscriber-id <id>` and `--from-sequence <n>`: with `--reliable`, resume
   a named subscription across runs. The default id is random.
 

@@ -34,7 +34,7 @@ type fakeEventService struct {
 }
 
 // SubscribeWithAck sends events 1 and 2 on the first connection and then
-// drops it, and on the second connection redelivers 2 before sending 3.
+// drops it, and on the second connection redelivers 1 (under an id the client never saw) and 2 before sending 3.
 func (f *fakeEventService) SubscribeWithAck(
 	ctx context.Context,
 	stream *connect.BidiStream[eventv1alpha1.SubscribeWithAckRequest, eventv1alpha1.SubscribeWithAckResponse],
@@ -68,7 +68,7 @@ func (f *fakeEventService) SubscribeWithAck(
 	for _, e := range []struct {
 		seq uint64
 		id  string
-	}{{2, "b"}, {3, "c"}} {
+	}{{1, "z"}, {2, "b"}, {3, "c"}} {
 		if err := send(e.seq, e.id); err != nil {
 			return err
 		}
@@ -106,8 +106,8 @@ func TestRunEventStreamReliableResumesAndDedupes(t *testing.T) {
 		t.Fatalf("RunEventStream: %v", err)
 	}
 
-	if len(got) != 3 || got[2] != "c" {
-		t.Fatalf("handled %v, want three events ending in c with b not repeated", got)
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Fatalf("handled %v, want a b c with redelivered events skipped", got)
 	}
 	if first, second := <-svc.startSeqs, <-svc.startSeqs; first != 0 || second != 2 {
 		t.Fatalf("start sequences = %d then %d, want 0 then 2", first, second)

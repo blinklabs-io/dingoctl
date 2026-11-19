@@ -50,8 +50,9 @@ var errStreamClosed = connect.NewError(connect.CodeUnavailable, errors.New("even
 // reconnects. A nil return means ctx was cancelled.
 //
 // In reliable mode an event is acknowledged only after handler returns nil,
-// reconnects resume from the last acknowledged sequence, and events already
-// handled (redelivery is at-least-once) are skipped by Event.id. Handler
+// reconnects resume from the last acknowledged sequence, and a redelivered
+// event (at-least-once) is skipped because sequences are strictly increasing
+// within a delivery stream, so the cursor never moves backwards. Handler
 // errors are never retried. onReconnect, if non-nil, is called with the
 // error that caused each retry.
 func RunEventStream(
@@ -64,20 +65,18 @@ func RunEventStream(
 ) error {
 	rp := newRetryPolicy(cfg)
 	lastAcked := opts.LastAckedSequence
-	seen := newIDWindow(4096)
 
 	for {
 		progressed := false
 		onEvent := func(ev *eventv1alpha1.Event) error {
 			progressed = true
-			if opts.Reliable && seen.has(ev.GetId()) {
+			if opts.Reliable && ev.GetSequence() <= lastAcked {
 				return nil
 			}
 			if err := handler(ev); err != nil {
 				return &handlerError{cause: err}
 			}
 			if opts.Reliable {
-				seen.add(ev.GetId())
 				lastAcked = ev.GetSequence()
 			}
 			return nil
@@ -190,32 +189,4 @@ func sendErr(stream *connect.BidiStreamForClient[eventv1alpha1.SubscribeWithAckR
 		return nil
 	}
 	return err
-}
-
-// idWindow remembers the most recent n event ids so redelivered events can
-// be dropped without growing without bound.
-type idWindow struct {
-	set   map[string]struct{}
-	order []string
-	next  int
-}
-
-func newIDWindow(n int) *idWindow {
-	return &idWindow{set: make(map[string]struct{}, n), order: make([]string, 0, n)}
-}
-
-func (w *idWindow) has(id string) bool {
-	_, ok := w.set[id]
-	return ok
-}
-
-func (w *idWindow) add(id string) {
-	if len(w.order) < cap(w.order) {
-		w.order = append(w.order, id)
-	} else {
-		delete(w.set, w.order[w.next])
-		w.order[w.next] = id
-		w.next = (w.next + 1) % len(w.order)
-	}
-	w.set[id] = struct{}{}
 }

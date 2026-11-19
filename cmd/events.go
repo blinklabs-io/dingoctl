@@ -130,7 +130,7 @@ one line in text mode, one compact JSON object per line with --output json
 By default delivery is at-most-once (Subscribe): events published while the
 connection is down are not replayed. With --reliable (SubscribeWithAck) each
 event is acknowledged after it is written, a reconnect resumes from the last
-acknowledged event, and redelivered events are dropped by id. Either mode
+acknowledged event, and redelivered events are skipped by sequence. Either mode
 reconnects on a transient disconnect within the configured retry budget.
 
 --type accepts registered names ("chain.update") and category patterns
