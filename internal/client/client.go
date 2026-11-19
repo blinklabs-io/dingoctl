@@ -19,17 +19,13 @@ import (
 
 	"connectrpc.com/connect"
 	databasev1alpha1connect "github.com/blinklabs-io/bark/proto/v1alpha1/database/databasev1alpha1connect"
+	eventv1alpha1connect "github.com/blinklabs-io/bark/proto/v1alpha1/event/eventv1alpha1connect"
 	lifecyclev1alpha1connect "github.com/blinklabs-io/bark/proto/v1alpha1/lifecycle/lifecyclev1alpha1connect"
 )
 
 // Client is the session-scoped handle to a Bark node.  It owns the HTTP
 // transport (and therefore the underlying connection pool) and bundles the
 // ConnectRPC interceptors.  All exported methods are safe for concurrent use.
-//
-// EventService remains connection-parameter-only below: the Bark proto for it
-// hasn't landed yet. DatabaseService and LifecycleService return the real
-// generated clients directly — see their doc comments. EventService will
-// follow the same pattern once its proto ships.
 type Client struct {
 	httpClient  *http.Client
 	baseURL     string
@@ -89,12 +85,6 @@ func (c *Client) ConnectOptions() []connect.ClientOption {
 func (c *Client) Config() Config { return c.cfg }
 
 // ── Per-service factories ────────────────────────────────────────────────────
-//
-// EventService below returns the three arguments required by every ConnectRPC
-// generated client constructor (NewXxxServiceClient(httpClient, baseURL, opts...))
-// — it exists now so subcommands have a stable call-site to depend on; it
-// becomes a one-liner like DatabaseService and LifecycleService once its proto
-// is published.
 
 // DatabaseService returns a Bark DatabaseService client bound to this
 // session's shared HTTP transport, base URL, and interceptor chain
@@ -114,7 +104,12 @@ func (c *Client) LifecycleService() lifecyclev1alpha1connect.LifecycleServiceCli
 	)
 }
 
-// EventService returns the connection parameters for the Bark EventService.
-func (c *Client) EventService() (*http.Client, string, []connect.ClientOption) {
-	return c.httpClient, c.baseURL, c.ConnectOptions()
+// EventService returns a Bark EventService client bound to this session's
+// shared HTTP transport, base URL, and interceptor chain. The interceptors
+// are unary-only, so the streaming RPCs are neither retried nor
+// deadline-bound by them; see RunEventStream for reconnect handling.
+func (c *Client) EventService() eventv1alpha1connect.EventServiceClient {
+	return eventv1alpha1connect.NewEventServiceClient(
+		c.httpClient, c.baseURL, c.connectOpts...,
+	)
 }
