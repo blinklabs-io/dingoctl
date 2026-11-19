@@ -83,11 +83,22 @@ func asConnectError(err error) (*connect.Error, bool) {
 	return connectErr, ok
 }
 
+// ExitCodeError makes a command exit with Code and no error message, for
+// outcomes that are not failures to report, such as ending a stream on a
+// signal.
+type ExitCodeError struct{ Code int }
+
+func (e *ExitCodeError) Error() string { return fmt.Sprintf("exit status %d", e.Code) }
+
 // ExitCode returns a UNIX exit code for the given error.
 // ConnectRPC-specific codes get dedicated values; all other errors return 1.
 func ExitCode(err error) int {
 	if err == nil {
 		return 0
+	}
+	var ece *ExitCodeError
+	if errors.As(err, &ece) {
+		return ece.Code
 	}
 	connectErr, ok := asConnectError(err)
 	if !ok {
@@ -109,6 +120,10 @@ func ExitCode(err error) int {
 // Die writes a formatted error to stderr and calls os.Exit with the
 // appropriate exit code for err.
 func Die(err error) {
+	var ece *ExitCodeError
+	if errors.As(err, &ece) {
+		os.Exit(ece.Code)
+	}
 	fmt.Fprintf(os.Stderr, "error: %s\n", Format(err))
 	os.Exit(ExitCode(err))
 }

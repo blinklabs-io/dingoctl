@@ -109,9 +109,53 @@ dingoctl [flags] <command> [args]
 - `completion [bash|zsh|fish|powershell]`: Generate shell completion scripts
 - `config`: Manage local dingoctl profiles and settings
 - `database`: Manage snapshots, restore, truncate, and operation status
+- `events`: List event types, print event schemas, and stream events
 - `stop`: Gracefully stop the connected Dingo node
 - `restart`: Gracefully restart the connected Dingo node
 - `status`: Show lifecycle state, health, uptime, and sync status
+
+### Events
+
+Read-only access to the node's EventBus over Bark's EventService. Publishing
+is not exposed.
+
+```bash
+dingoctl events list                      # event types the node accepts
+dingoctl events schema chain.update       # payload fields of one type
+dingoctl events subscribe                 # stream every event until Ctrl+C
+dingoctl --output json events subscribe --type 'chain.update'
+```
+
+`events subscribe` flags:
+
+- `--type <name|pattern>`: registered event type or category pattern such as
+  `peergov.*`; repeatable. Default is every type.
+- `--origin-node <id>`: only events from this origin node; repeatable.
+- `--filter <expr>`: client-side filter, `key=value` or `key!=value`, where
+  the value may use `*` and `?` wildcards. Repeatable; every filter must
+  match. Keys are `type`, `origin_node_id`, `id`, `sequence`, and
+  `data.<field>` for a field of the decoded payload (nested fields as
+  `data.rollback.to_slot`). An event that lacks a key never matches `=`.
+  Payload fields can only be filtered for payload types this dingoctl build
+  knows; others carry a `data_type` and no `data`.
+- `--reliable`: acknowledged at-least-once delivery (SubscribeWithAck)
+  instead of the default at-most-once Subscribe. Events are acknowledged
+  after they are written (including ones a filter drops), a reconnect
+  resumes from the last acknowledged event, and redelivered events are
+  dropped by id.
+- `--subscriber-id <id>` and `--from-sequence <n>`: with `--reliable`, resume
+  a named subscription across runs. The default id is random.
+
+Output follows `--output`: one line per event in text and table, one compact
+JSON object per line with `json` (newline-delimited, suited to `jq` and
+scripts), and one `---`-separated document per event with `yaml`.
+
+A transient disconnect is retried with exponential backoff, and the retry
+budget resets whenever an event arrives; a message goes to stderr on each
+reconnect. In at-most-once mode, events published while disconnected are
+lost. SIGINT and SIGTERM stop the stream once the event being written is
+complete and exit with status 130 and 143 respectively. Other failures use
+the usual exit codes.
 
 ### Global Flags
 

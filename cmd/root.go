@@ -182,6 +182,7 @@ func init() {
 	rootCmd.AddCommand(newCompletionCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newDatabaseCmd())
+	rootCmd.AddCommand(newEventsCmd())
 	rootCmd.AddCommand(newStopCmd())
 	rootCmd.AddCommand(newRestartCmd())
 	rootCmd.AddCommand(newStatusCmd())
