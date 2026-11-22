@@ -106,7 +106,8 @@ func RunEventStream(
 		// retried without a budget: a restarting node can take longer to come
 		// back than the budget's backoff lasts. Other transient errors, such
 		// as a subscriber limit, keep the budget.
-		if !(cfg.MaxRetries > 0 && disconnected(ctx, err)) && !rp.retriable(ctx, err) {
+		budgetless := cfg.MaxRetries > 0 && disconnected(ctx, err)
+		if !budgetless && !rp.retriable(ctx, err) {
 			return err
 		}
 		if onReconnect != nil {

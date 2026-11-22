@@ -46,13 +46,9 @@ func transientErr(ctx context.Context, err error) bool {
 // disconnected reports whether err means the connection to the node dropped,
 // as opposed to the node refusing the call.
 func disconnected(ctx context.Context, err error) bool {
-	switch connect.CodeOf(err) {
-	case connect.CodeUnavailable:
-		return true
-	case connect.CodeCanceled:
-		return ctx.Err() == nil
-	}
-	return false
+	code := connect.CodeOf(err)
+	return code == connect.CodeUnavailable ||
+		(code == connect.CodeCanceled && ctx.Err() == nil)
 }
 
 // noRetryKey is the context key WithNoRetry/noRetryRequested use to opt a
