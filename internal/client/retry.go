@@ -40,11 +40,19 @@ func transientCode(code connect.Code) bool {
 // Canceled error is therefore a dropped connection and is retried like
 // Unavailable; once ctx is done it is a real cancellation and is not.
 func transientErr(ctx context.Context, err error) bool {
-	code := connect.CodeOf(err)
-	if code == connect.CodeCanceled && ctx.Err() == nil {
+	return disconnected(ctx, err) || transientCode(connect.CodeOf(err))
+}
+
+// disconnected reports whether err means the connection to the node dropped,
+// as opposed to the node refusing the call.
+func disconnected(ctx context.Context, err error) bool {
+	switch connect.CodeOf(err) {
+	case connect.CodeUnavailable:
 		return true
+	case connect.CodeCanceled:
+		return ctx.Err() == nil
 	}
-	return transientCode(code)
+	return false
 }
 
 // noRetryKey is the context key WithNoRetry/noRetryRequested use to opt a

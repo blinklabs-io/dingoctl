@@ -134,13 +134,17 @@ func (plainOnceService) Subscribe(
 }
 
 // TestRunEventStreamRetriesConnectionReset checks a subscription survives the
-// connection being reset, as it is while the node restarts: connect-go
-// reports the reset as CodeCanceled, which must not end the stream.
+// connection being reset, as it is while the node restarts, for longer than
+// the retry budget: connect-go reports the reset as CodeCanceled, which must
+// not end the stream.
 func TestRunEventStreamRetriesConnectionReset(t *testing.T) {
 	_, handler := eventv1alpha1connect.NewEventServiceHandler(plainOnceService{})
 	var requests atomic.Int32
+	// More resets than the retry budget allows: a restarting node stays
+	// down longer than the budget's backoff lasts.
+	const resets = 5
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if requests.Add(1) == 1 {
+		if requests.Add(1) <= resets {
 			conn, _, err := w.(http.Hijacker).Hijack()
 			if err != nil {
 				t.Errorf("hijack: %v", err)
@@ -158,7 +162,7 @@ func TestRunEventStreamRetriesConnectionReset(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	svc := eventv1alpha1connect.NewEventServiceClient(srv.Client(), srv.URL)
-	cfg := Config{MaxRetries: 3, RetryBaseDelay: time.Millisecond, RetryMaxDelay: 10 * time.Millisecond}
+	cfg := Config{MaxRetries: 2, RetryBaseDelay: time.Millisecond, RetryMaxDelay: 10 * time.Millisecond}
 	var got []string
 	err := RunEventStream(ctx, cfg, svc, EventStreamOptions{}, func(ev *eventv1alpha1.Event) error {
 		got = append(got, ev.GetId())
@@ -171,7 +175,7 @@ func TestRunEventStreamRetriesConnectionReset(t *testing.T) {
 	if len(got) != 1 || got[0] != "a" {
 		t.Fatalf("events = %v, want [a]", got)
 	}
-	if n := requests.Load(); n != 2 {
-		t.Fatalf("requests = %d, want 2 (one reset, one served)", n)
+	if n := requests.Load(); n != resets+1 {
+		t.Fatalf("requests = %d, want %d (%d resets, one served)", n, resets+1, resets)
 	}
 }

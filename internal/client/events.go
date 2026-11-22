@@ -44,10 +44,10 @@ type EventStreamOptions struct {
 var errStreamClosed = connect.NewError(connect.CodeUnavailable, errors.New("event stream closed by server"))
 
 // RunEventStream delivers events to handler until ctx is cancelled, handler
-// fails, or a non-transient error occurs. Transient disconnects are retried
-// under cfg's retry policy, whose budget is restored each time an event
-// arrives so a long-lived subscription is not worn down by occasional
-// reconnects. A nil return means ctx was cancelled.
+// fails, or a non-transient error occurs. A dropped connection is retried
+// with cfg's backoff until ctx is cancelled; other transient errors are
+// retried under cfg's retry policy, whose budget is restored each time an
+// event arrives. A nil return means ctx was cancelled.
 //
 // In reliable mode an event is acknowledged only after handler returns nil,
 // reconnects resume from the last acknowledged sequence, and a redelivered
@@ -102,7 +102,11 @@ func RunEventStream(
 		if progressed {
 			rp = newRetryPolicy(cfg)
 		}
-		if !rp.retriable(ctx, err) {
+		// A subscription runs until cancelled, so a dropped connection is
+		// retried without a budget: a restarting node can take longer to come
+		// back than the budget's backoff lasts. Other transient errors, such
+		// as a subscriber limit, keep the budget.
+		if !(cfg.MaxRetries > 0 && disconnected(ctx, err)) && !rp.retriable(ctx, err) {
 			return err
 		}
 		if onReconnect != nil {
