@@ -29,12 +29,12 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/blinklabs-io/bark/eventtype"
 	eventv1alpha1 "github.com/blinklabs-io/bark/proto/v1alpha1/event"
 	eventv1alpha1connect "github.com/blinklabs-io/bark/proto/v1alpha1/event/eventv1alpha1connect"
 	"github.com/blinklabs-io/dingoctl/internal/client"
 	"github.com/blinklabs-io/dingoctl/internal/errs"
-	"google.golang.org/protobuf/reflect/protodesc"
-	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -81,13 +81,16 @@ func (f *fakeEventService) GetEventSchema(
 	if req.Msg.GetEventType() != "epoch.transition" {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("unknown event type"))
 	}
-	fd := (&eventv1alpha1.EpochTransitionEventData{}).ProtoReflect().Descriptor().ParentFile()
+	// The same descriptor set the server sends: the payload's file and every
+	// file it imports.
+	set, err := eventtype.PayloadDescriptors("epoch.transition")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	return connect.NewResponse(&eventv1alpha1.GetEventSchemaResponse{
-		Info:           &eventv1alpha1.EventTypeInfo{Name: "epoch.transition", Category: "epoch", Description: "epoch changed", HasTypedPayload: true},
-		PayloadMessage: "bark.v1alpha1.event.EpochTransitionEventData",
-		PayloadDescriptors: &descriptorpb.FileDescriptorSet{
-			File: []*descriptorpb.FileDescriptorProto{protodesc.ToFileDescriptorProto(fd)},
-		},
+		Info:               &eventv1alpha1.EventTypeInfo{Name: "epoch.transition", Category: "epoch", Description: "epoch changed", HasTypedPayload: true},
+		PayloadMessage:     "bark.v1alpha1.event.EpochTransitionEventData",
+		PayloadDescriptors: set,
 	}), nil
 }
 
@@ -316,6 +319,52 @@ func TestEventFilters(t *testing.T) {
 		}
 		if got := match(ev); got != want {
 			t.Errorf("%s: got %v, want %v", expr, got, want)
+		}
+	}
+}
+
+// TestEventNodeStatePayloadsDecode checks the sync state, protocol parameter
+// and database operation payloads decode into fields a filter can match.
+func TestEventNodeStatePayloadsDecode(t *testing.T) {
+	for _, tc := range []struct {
+		eventType string
+		payload   proto.Message
+		filter    string
+	}{
+		{
+			"ledger.sync_state",
+			&eventv1alpha1.SyncStateEventData{
+				PreviousState: eventv1alpha1.SyncState_SYNC_STATE_SYNCING,
+				CurrentState:  eventv1alpha1.SyncState_SYNC_STATE_CAUGHT_UP,
+				TipSlot:       700,
+			},
+			"data.current_state=SYNC_STATE_CAUGHT_UP",
+		},
+		{
+			"ledger.protocol_params",
+			&eventv1alpha1.ProtocolParametersEventData{Epoch: 12, Era: "conway", ProtocolMajor: 10},
+			"data.era=conway",
+		},
+		{
+			"database.operation",
+			&eventv1alpha1.DatabaseOperationEventData{OperationId: "op-1"},
+			"data.operation_id=op-1",
+		},
+	} {
+		data, err := anypb.New(tc.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ev := eventFromProto(&eventv1alpha1.Event{Id: "x", EventType: tc.eventType, TypedData: data})
+		if ev.DataType != "" || ev.Data == nil {
+			t.Fatalf("%s: payload not decoded (data_type %q)", tc.eventType, ev.DataType)
+		}
+		match, err := parseEventFilters([]string{tc.filter})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.filter, err)
+		}
+		if !match(ev) {
+			t.Errorf("%s: %s did not match %v", tc.eventType, tc.filter, ev.Data)
 		}
 	}
 }
