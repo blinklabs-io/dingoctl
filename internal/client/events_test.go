@@ -16,6 +16,7 @@ package client
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -111,5 +112,66 @@ func TestRunEventStreamReliableResumesAndDedupes(t *testing.T) {
 	}
 	if first, second := <-svc.startSeqs, <-svc.startSeqs; first != 0 || second != 2 {
 		t.Fatalf("start sequences = %d then %d, want 0 then 2", first, second)
+	}
+}
+
+type plainOnceService struct {
+	eventv1alpha1connect.UnimplementedEventServiceHandler
+}
+
+func (plainOnceService) Subscribe(
+	ctx context.Context,
+	_ *connect.Request[eventv1alpha1.SubscribeRequest],
+	stream *connect.ServerStream[eventv1alpha1.SubscribeResponse],
+) error {
+	if err := stream.Send(&eventv1alpha1.SubscribeResponse{
+		Event: &eventv1alpha1.Event{Id: "a", Sequence: 1},
+	}); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return nil
+}
+
+// TestRunEventStreamRetriesConnectionReset checks a subscription survives the
+// connection being reset, as it is while the node restarts: connect-go
+// reports the reset as CodeCanceled, which must not end the stream.
+func TestRunEventStreamRetriesConnectionReset(t *testing.T) {
+	_, handler := eventv1alpha1connect.NewEventServiceHandler(plainOnceService{})
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			// Linger 0 makes Close send a TCP reset rather than a FIN.
+			_ = conn.(*net.TCPConn).SetLinger(0)
+			_ = conn.Close()
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	svc := eventv1alpha1connect.NewEventServiceClient(srv.Client(), srv.URL)
+	cfg := Config{MaxRetries: 3, RetryBaseDelay: time.Millisecond, RetryMaxDelay: 10 * time.Millisecond}
+	var got []string
+	err := RunEventStream(ctx, cfg, svc, EventStreamOptions{}, func(ev *eventv1alpha1.Event) error {
+		got = append(got, ev.GetId())
+		cancel()
+		return nil
+	}, nil)
+	if err != nil {
+		t.Fatalf("RunEventStream: %v", err)
+	}
+	if len(got) != 1 || got[0] != "a" {
+		t.Fatalf("events = %v, want [a]", got)
+	}
+	if n := requests.Load(); n != 2 {
+		t.Fatalf("requests = %d, want 2 (one reset, one served)", n)
 	}
 }

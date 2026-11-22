@@ -61,7 +61,7 @@ func RunServerStream[T any](
 		if errors.As(err, &he) {
 			return he.cause
 		}
-		if !rp.retriable(err) {
+		if !rp.retriable(ctx, err) {
 			return err
 		}
 		if advErr := rp.advance(ctx); advErr != nil {

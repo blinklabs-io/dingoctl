@@ -102,7 +102,7 @@ func RunEventStream(
 		if progressed {
 			rp = newRetryPolicy(cfg)
 		}
-		if !rp.retriable(err) {
+		if !rp.retriable(ctx, err) {
 			return err
 		}
 		if onReconnect != nil {
