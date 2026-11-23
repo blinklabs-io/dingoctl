@@ -33,6 +33,24 @@ func transientCode(code connect.Code) bool {
 	return code == connect.CodeUnavailable || code == connect.CodeResourceExhausted
 }
 
+// transientErr reports whether err is safe to retry for a call made with ctx.
+// connect-go reports a connection reset or broken pipe as CodeCanceled even
+// when the caller did not cancel (wrapIfContextError in connect's error.go),
+// which is what a node that is restarting produces. While ctx is still live a
+// Canceled error is therefore a dropped connection and is retried like
+// Unavailable; once ctx is done it is a real cancellation and is not.
+func transientErr(ctx context.Context, err error) bool {
+	return disconnected(ctx, err) || transientCode(connect.CodeOf(err))
+}
+
+// disconnected reports whether err means the connection to the node dropped,
+// as opposed to the node refusing the call.
+func disconnected(ctx context.Context, err error) bool {
+	code := connect.CodeOf(err)
+	return code == connect.CodeUnavailable ||
+		(code == connect.CodeCanceled && ctx.Err() == nil)
+}
+
 // noRetryKey is the context key WithNoRetry/noRetryRequested use to opt a
 // call out of retryInterceptor.
 type noRetryKey struct{}
@@ -73,11 +91,11 @@ func newRetryPolicy(cfg Config) *retryPolicy {
 
 // retriable returns true when err is transient and the attempt budget allows
 // at least one more try.
-func (rp *retryPolicy) retriable(err error) bool {
+func (rp *retryPolicy) retriable(ctx context.Context, err error) bool {
 	return err != nil &&
 		rp.cfg.MaxRetries > 0 &&
 		rp.attempt < rp.cfg.MaxRetries &&
-		transientCode(connect.CodeOf(err))
+		transientErr(ctx, err)
 }
 
 // advance waits the current backoff delay (honouring ctx cancellation),
@@ -116,7 +134,7 @@ func retryInterceptor(cfg Config) connect.UnaryInterceptorFunc {
 				if err == nil {
 					return resp, nil
 				}
-				if !rp.retriable(err) {
+				if !rp.retriable(ctx, err) {
 					return nil, err
 				}
 				if advErr := rp.advance(ctx); advErr != nil {

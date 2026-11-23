@@ -38,8 +38,10 @@ type StreamFactory[T any] func(ctx context.Context) (*connect.ServerStreamForCli
 type StreamHandler[T any] func(msg *T) error
 
 // RunServerStream opens a server-streaming RPC via factory and drives it with
-// handler.  On a transient transport disconnect (CodeUnavailable) the stream
-// is re-established using the same retryPolicy as retryInterceptor.
+// handler.  On a transient error (CodeUnavailable, CodeResourceExhausted, or
+// CodeCanceled while ctx is still live, which is how connect-go reports a
+// connection reset) the stream is re-established using the same retryPolicy
+// as retryInterceptor.
 //
 // Handler errors are never retried.  The context should carry the caller's
 // cancellation signal; cancellation terminates the loop regardless of the
@@ -61,7 +63,7 @@ func RunServerStream[T any](
 		if errors.As(err, &he) {
 			return he.cause
 		}
-		if !rp.retriable(err) {
+		if !rp.retriable(ctx, err) {
 			return err
 		}
 		if advErr := rp.advance(ctx); advErr != nil {

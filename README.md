@@ -150,9 +150,11 @@ Output follows `--output`: one line per event in text and table, one compact
 JSON object per line with `json` (newline-delimited, suited to `jq` and
 scripts), and one `---`-separated document per event with `yaml`.
 
-A transient disconnect is retried with exponential backoff, and the retry
-budget resets whenever an event arrives; a message goes to stderr on each
-reconnect. In at-most-once mode, events published while disconnected are
+A dropped connection, such as the node restarting, is retried with
+exponential backoff (capped at 5 seconds) until the stream is stopped; other
+transient errors, such as a subscriber limit, are retried within the retry
+budget, which resets whenever an event arrives. A message goes to stderr on
+each reconnect. In at-most-once mode, events published while disconnected are
 lost. SIGINT and SIGTERM stop the stream once the event being written is
 complete and exit with status 130 and 143 respectively. Other failures use
 the usual exit codes.

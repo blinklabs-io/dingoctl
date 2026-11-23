@@ -89,7 +89,7 @@ func TestTransientCode(t *testing.T) {
 
 func TestRetryPolicyRetriableFalseWhenMaxRetriesZero(t *testing.T) {
 	rp := newRetryPolicy(testCfg(0))
-	if rp.retriable(unavailable()) {
+	if rp.retriable(context.Background(), unavailable()) {
 		t.Error("retriable must be false when MaxRetries=0")
 	}
 }
@@ -97,14 +97,14 @@ func TestRetryPolicyRetriableFalseWhenMaxRetriesZero(t *testing.T) {
 func TestRetryPolicyRetriableFalseWhenBudgetExhausted(t *testing.T) {
 	rp := newRetryPolicy(testCfg(1))
 	rp.attempt = 1 // budget spent
-	if rp.retriable(unavailable()) {
+	if rp.retriable(context.Background(), unavailable()) {
 		t.Error("retriable must be false when attempt >= MaxRetries")
 	}
 }
 
 func TestRetryPolicyRetriableFalseForPermanentError(t *testing.T) {
 	rp := newRetryPolicy(testCfg(3))
-	if rp.retriable(notFound()) {
+	if rp.retriable(context.Background(), notFound()) {
 		t.Error("retriable must be false for permanent errors")
 	}
 }
@@ -306,5 +306,45 @@ func TestTimeoutZeroIsNoop(t *testing.T) {
 	_, _ = wrapped(context.Background(), newReq())
 	if !called {
 		t.Fatal("underlying function was not called")
+	}
+}
+
+// TestTransientErrCanceledOnlyWhileContextLive checks a Canceled error is a
+// dropped connection while the caller's context is live, and a real
+// cancellation once it is done.
+func TestTransientErrCanceledOnlyWhileContextLive(t *testing.T) {
+	canceled := connect.NewError(connect.CodeCanceled, errors.New("connection reset by peer"))
+	if !transientErr(context.Background(), canceled) {
+		t.Error("Canceled with a live context should be retried")
+	}
+	done, cancel := context.WithCancel(context.Background())
+	cancel()
+	if transientErr(done, canceled) {
+		t.Error("Canceled after the caller cancelled must not be retried")
+	}
+}
+
+// TestRetryCanceledOnlyWhileContextLive checks the interceptor retries a
+// Canceled error while the caller's context is live, the way connect-go
+// reports a connection reset, and makes one attempt once it is cancelled.
+func TestRetryCanceledOnlyWhileContextLive(t *testing.T) {
+	reset := connect.NewError(connect.CodeCanceled, errors.New("connection reset by peer"))
+
+	fn, calls := sequence(reset, nil)
+	if _, err := retryInterceptor(testCfg(3))(fn)(context.Background(), newReq()); err != nil {
+		t.Fatalf("expected success after retrying the reset, got: %v", err)
+	}
+	if *calls != 2 {
+		t.Fatalf("live context: expected 2 calls, got %d", *calls)
+	}
+
+	fn, calls = sequence(reset, nil)
+	done, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := retryInterceptor(testCfg(3))(fn)(done, newReq()); err == nil {
+		t.Fatal("cancelled context: expected the error, got success")
+	}
+	if *calls != 1 {
+		t.Fatalf("cancelled context: expected 1 call, got %d", *calls)
 	}
 }

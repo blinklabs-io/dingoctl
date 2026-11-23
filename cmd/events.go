@@ -131,7 +131,9 @@ By default delivery is at-most-once (Subscribe): events published while the
 connection is down are not replayed. With --reliable (SubscribeWithAck) each
 event is acknowledged after it is written, a reconnect resumes from the last
 acknowledged event, and redelivered events are skipped by sequence. Either mode
-reconnects on a transient disconnect within the configured retry budget.
+reconnects after a dropped connection, such as the node restarting, until the
+stream is stopped; other transient errors, such as a subscriber limit, are
+retried within the retry budget.
 
 --type accepts registered names ("chain.update") and category patterns
 ("peergov.*"). SIGINT and SIGTERM stop the stream once the event being written is
