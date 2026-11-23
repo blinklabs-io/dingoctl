@@ -323,3 +323,28 @@ func TestTransientErrCanceledOnlyWhileContextLive(t *testing.T) {
 		t.Error("Canceled after the caller cancelled must not be retried")
 	}
 }
+
+// TestRetryCanceledOnlyWhileContextLive checks the interceptor retries a
+// Canceled error while the caller's context is live, the way connect-go
+// reports a connection reset, and makes one attempt once it is cancelled.
+func TestRetryCanceledOnlyWhileContextLive(t *testing.T) {
+	reset := connect.NewError(connect.CodeCanceled, errors.New("connection reset by peer"))
+
+	fn, calls := sequence(reset, nil)
+	if _, err := retryInterceptor(testCfg(3))(fn)(context.Background(), newReq()); err != nil {
+		t.Fatalf("expected success after retrying the reset, got: %v", err)
+	}
+	if *calls != 2 {
+		t.Fatalf("live context: expected 2 calls, got %d", *calls)
+	}
+
+	fn, calls = sequence(reset, nil)
+	done, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := retryInterceptor(testCfg(3))(fn)(done, newReq()); err == nil {
+		t.Fatal("cancelled context: expected the error, got success")
+	}
+	if *calls != 1 {
+		t.Fatalf("cancelled context: expected 1 call, got %d", *calls)
+	}
+}

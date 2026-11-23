@@ -64,6 +64,10 @@ func RunEventStream(
 	onReconnect func(error),
 ) error {
 	rp := newRetryPolicy(cfg)
+	// drop paces reconnects after a dropped connection. It is separate from
+	// rp so that drops, which are retried without a budget, do not use up the
+	// budget other transient errors are allowed.
+	drop := newRetryPolicy(cfg)
 	lastAcked := opts.LastAckedSequence
 
 	for {
@@ -101,6 +105,7 @@ func RunEventStream(
 		}
 		if progressed {
 			rp = newRetryPolicy(cfg)
+			drop = newRetryPolicy(cfg)
 		}
 		// A subscription runs until cancelled, so a dropped connection is
 		// retried without a budget: a restarting node can take longer to come
@@ -113,7 +118,11 @@ func RunEventStream(
 		if onReconnect != nil {
 			onReconnect(err)
 		}
-		if advErr := rp.advance(ctx); advErr != nil {
+		wait := rp
+		if budgetless {
+			wait = drop
+		}
+		if advErr := wait.advance(ctx); advErr != nil {
 			return nil //nolint:nilerr // cancelled while backing off
 		}
 	}
