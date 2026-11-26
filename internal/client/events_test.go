@@ -237,3 +237,83 @@ func TestRunEventStreamDropsDoNotUseTheBudget(t *testing.T) {
 		t.Fatalf("events = %v, want [a]", got)
 	}
 }
+
+type quietAfterAcksService struct {
+	eventv1alpha1connect.UnimplementedEventServiceHandler
+	acked chan struct{}
+}
+
+// SubscribeWithAck sends two events, waits for both acks, and then sends
+// nothing more until the client goes away.
+func (q *quietAfterAcksService) SubscribeWithAck(
+	ctx context.Context,
+	stream *connect.BidiStream[eventv1alpha1.SubscribeWithAckRequest, eventv1alpha1.SubscribeWithAckResponse],
+) error {
+	if _, err := stream.Receive(); err != nil {
+		return err
+	}
+	for seq := uint64(1); seq <= 2; seq++ {
+		if err := stream.Send(&eventv1alpha1.SubscribeWithAckResponse{
+			Event: &eventv1alpha1.Event{Sequence: seq},
+		}); err != nil {
+			return err
+		}
+		if _, err := stream.Receive(); err != nil {
+			return err
+		}
+	}
+	close(q.acked)
+	<-ctx.Done()
+	return nil
+}
+
+// TestRunEventStreamReliableCancelWhileIdle checks cancelling the context ends
+// a reliable subscription that is waiting in Receive on a quiet stream. Once
+// the response has started, the HTTP/2 transport only notices the context
+// while it is writing the request body, and a subscriber that has sent all
+// its acks leaves that writer parked on the empty request pipe.
+func TestRunEventStreamReliableCancelWhileIdle(t *testing.T) {
+	svc := &quietAfterAcksService{acked: make(chan struct{})}
+	mux := http.NewServeMux()
+	mux.Handle(eventv1alpha1connect.NewEventServiceHandler(svc))
+	srv := httptest.NewUnstartedServer(mux)
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	// Close waits for the handler, which waits for the client to go away.
+	defer func() {
+		srv.CloseClientConnections()
+		srv.Close()
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := eventv1alpha1connect.NewEventServiceClient(srv.Client(), srv.URL)
+	cfg := Config{MaxRetries: 3, RetryBaseDelay: time.Millisecond, RetryMaxDelay: time.Millisecond}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- RunEventStream(ctx, cfg, c,
+			EventStreamOptions{Reliable: true, SubscriberID: "t"},
+			func(*eventv1alpha1.Event) error { return nil }, nil)
+	}()
+
+	select {
+	case <-svc.acked:
+	case err := <-done:
+		t.Fatalf("RunEventStream returned before the acks: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not receive both acks")
+	}
+	// Give the client time to return to Receive after its last ack.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunEventStream: %v, want nil after cancel", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunEventStream still blocked 2s after its context was cancelled")
+	}
+}
