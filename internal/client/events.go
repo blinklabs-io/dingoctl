@@ -158,6 +158,15 @@ func runReliable(
 ) error {
 	stream := svc.SubscribeWithAck(ctx)
 	defer func() { _ = stream.CloseResponse() }()
+	// Once response headers arrive, the HTTP/2 transport checks ctx only
+	// while writing the request body. Between acks that writer is parked on
+	// the empty request pipe, so a cancel would leave Receive blocked until
+	// the server sends again. Closing both halves ends the stream instead.
+	stop := context.AfterFunc(ctx, func() {
+		_ = stream.CloseRequest()
+		_ = stream.CloseResponse()
+	})
+	defer stop()
 
 	err := stream.Send(&eventv1alpha1.SubscribeWithAckRequest{
 		Message: &eventv1alpha1.SubscribeWithAckRequest_Start{
