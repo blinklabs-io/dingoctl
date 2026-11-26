@@ -4,7 +4,7 @@ go 1.26.10
 
 require (
 	connectrpc.com/connect v1.21.1
-	github.com/blinklabs-io/bark v0.5.0
+	github.com/blinklabs-io/bark v0.6.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/mattn/go-isatty v0.0.24
